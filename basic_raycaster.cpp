@@ -1,6 +1,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <sstream>
 
 
 //read text file from command line
@@ -43,31 +44,31 @@ int main(int argc, const char * argv[]){
 
     //set up variables to be used
     std::string eye;
-    int eye_i;
-    int eye_j;
-    int eye_k;
+    float eye_i;
+    float eye_j;
+    float eye_k;
 
     std::string viewdir;
-    int viewdir_i;
-    int viewdir_j;
-    int viewdir_k;
+    float viewdir_i;
+    float viewdir_j;
+    float viewdir_k;
 
     std::string updir;
-    int updir_i;
-    int updir_j;
-    int updir_k;
+    float updir_i;
+    float updir_j;
+    float updir_k;
 
     std::string h_fov;
-    int hfov;
+    float hfov;
 
     std::string imsize;
     int width;
     int height;
 
     std::string bkgcolor;
-    int r;
-    int g;
-    int b;
+    float r;
+    float g;
+    float b;
 
     std::string mtlcolor;
     int m_r;
@@ -75,28 +76,50 @@ int main(int argc, const char * argv[]){
     int m_b;
 
     std::string sphere; //rename components
-    int one;
-    int two;
-    int three;
-    int four;
+    float one;
+    float two;
+    float three;
+    float four;
 
-    std::string line, val1, val2, val3, val4;
+    std::string line;
     //check if input file is in correct format
 
-    std::string deliminater = " ";
     while(std::getline(inputFile, line)){
-        val1 = line.substr(0, line.find(deliminater));
-        val2 = line.substr(0, line.find(deliminater) + 1);
-        val3 = line.substr(line.find(deliminater) + 2);
+        std::istringstream ss(line);
+        std::string word;
+        float num1;
+        float num2;
+        float num3;
 
+        if(ss >> word >> num1 >> num2 >> num3){
+            eye_i = num1;
+            eye_j = num2;
+            eye_k = num3;
+            fout << num1 << std::endl;
+        }
+    }
+
+
+    /*
+     std::string delimiter = ",";
+    while(std::getline(inputFile, line)){
+        val1 = line.substr(0, line.find(delimiter));
+        val2 = line.substr(line.find(delimiter) + 2, line.find(delimiter));
+        val3 = line.substr(line.find(delimiter) + line.find(delimiter) + 2, line.find(delimiter));
+        val4 = line.substr(line.find(delimiter)+ line.find(delimiter) + line.find(delimiter) + 3, line.find(delimiter));
+
+        
         std::cout << line << std::endl;
         std::cout << val1 << std::endl;
         std::cout << val2 << std::endl;
+        std::cout << val3 << std::endl;
+        std::cout << val4 << std::endl;
+        
 
         if(val1 == "eye"){
-            eye_i = std::stoi(val2);
-            eye_j = std::stoi(val3);
-            eye_k = std::stoi(val4);
+            eye_i = std::stod(val2);
+            eye_j = std::stod(val3);
+            eye_k = std::stod(val4);
         }
         else{
             std::cout << "wtf" << line << std::endl;
@@ -104,7 +127,9 @@ int main(int argc, const char * argv[]){
         }
     }
 
-    std::cout << val1 << val2 << val3 << val4 << std::endl;
+    std::cout << val1 << " " << val2  << " " << val3  << " " << val4 << std::endl;
+    */
+   
     
     inputFile.close();
     return 0;
