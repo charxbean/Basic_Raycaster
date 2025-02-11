@@ -31,7 +31,7 @@ int px_width;
 int px_height;
 
 //arbitrary d value
-int d = 5;
+int d = 500;
 
 //color type for bg color and material color
 typedef struct{
@@ -123,6 +123,7 @@ void normalize(VectorType& v1){
     v1.k = v1.k/length;
 }
 
+//finds and returns the closest positive t value beteween t1 and t2, returns -1 if both are invalid
 float find_t(float t1, float t2){
     if(t1 > 0 && t2 > 0){
         if(t1 > t2){
@@ -145,6 +146,43 @@ float find_t(float t1, float t2){
 //prints a vector to the terminal
 void printVector(VectorType v1){
     std::cout << "<" << v1.i << ", " << v1.j << ", " << v1.k << ">" << std::endl;
+}
+
+//iterate through each object in the scene and check for a ray intersection
+//returns the pixel color at the intersection point, or the background color if no intersection is found
+ColorType TraceRay(Raytype ray, std::vector<SphereType> &sphereArray){
+
+    for(int i = 0; i < sphereArray.size(); i++){
+        float xc = sphereArray[i].x;
+        float yc = sphereArray[i].y;
+        float zc = sphereArray[i].z;
+        float r = sphereArray[i].r;
+        
+        float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
+        float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
+        float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
+        
+        //check if the determinant is negative
+        float determinant = (pow(B, 2) - 4*A*C);
+        if(determinant > 0){
+            float t1 = -1 * B + (std::sqrt(determinant))/2*A;
+            float t2 = -1 * B - (std::sqrt(determinant))/2*A;
+            float t = find_t(t1, t2);
+        }
+        else{
+            float t = -1; //no "valid" t value
+        }
+
+        
+        //identifier to knwo which object was intersected: the sphere's index
+    }
+        ColorType color;
+        color.r = .1;
+        color.g = .2;
+        color.b = .3;
+        //how to check closest t-value between different spheres>
+        //have an array of rays, an array of t values (-1 if intersection wasn't found)
+        return color;
 }
 
 int main(int argc, const char * argv[]){
@@ -213,7 +251,7 @@ int main(int argc, const char * argv[]){
             if (ss >> num1 >> num2 >> num3 >> num4) {
                 SphereType sphere{num1, num2, num3, num4, static_cast<int>(materialArray.size() - 1)};
                 sphereArray.push_back(sphere);
-                fout << word << " " << num1 << " " << num2 << " " << num3 << " " << num4 << std::endl;
+                //fout << word << " " << num1 << " " << num2 << " " << num3 << " " << num4 << std::endl;
             } else {
                 std::cerr << "Error parsing sphere line: " << line << std::endl;
             }
@@ -228,7 +266,7 @@ int main(int argc, const char * argv[]){
                     mtlcolor = {num1, num2, num3};
                     materialArray.push_back(mtlcolor);
                 }
-                fout << word << " " << num1 << " " << num2 << " " << num3 << std::endl;
+                //fout << word << " " << num1 << " " << num2 << " " << num3 << std::endl;
             } else {
                 std::cerr << "Error parsing 3-float line: " << line << std::endl;
             }
@@ -237,7 +275,7 @@ int main(int argc, const char * argv[]){
             if (ss >> num1 >> num2) {
                 px_width = num1;
                 px_height = num2;
-                fout << word << " " << num1 << " " << num2 << std::endl;
+                //fout << word << " " << num1 << " " << num2 << std::endl;
             } else {
                 std::cerr << "Error parsing imsize line: " << line << std::endl;
             }
@@ -245,7 +283,7 @@ int main(int argc, const char * argv[]){
         else if (word == "vfov") {
             if (ss >> num1) {
                 if (word == "vfov") vfov = num1;
-                fout << word << " " << num1 << std::endl;
+                //fout << word << " " << num1 << std::endl;
             } else {
                 std::cerr << "Error parsing vfov line: " << line << std::endl;
             }
@@ -263,73 +301,99 @@ int main(int argc, const char * argv[]){
     VectorType v = crossProduct(u, viewdir);
 
     //calculate the width and height in 3d world coordinates
-    int height = 2*d*std::tan((1/2) * vfov);
+    
+
+    float radian_vfov = (vfov * M_PI)/180;
+    int height = (2*d*std::tan(0.5 * radian_vfov));
     int width = (px_width / px_height) * height;
 
     //Find the 4 corners of the viewing window
     VectorType ul;
     ul = vectorAdd(eye, vectorScalar(viewdir, d)); //e + d*n
-    ul = vectorSubtract(ul, vectorScalar(u, (width/2))); //(w/2) * u
-    ul = vectorAdd(ul, vectorScalar(v, (height/2))); //(h/2) * v
-    printVector(ul);
+    ul = vectorSubtract(ul, vectorScalar(u, (width/2.0))); //(w/2.0) * u
+    ul = vectorAdd(ul, vectorScalar(v, (height/2.0))); //(h/2.0) * v
+    //printVector(ul);
 
     VectorType ur;
     ur = vectorAdd(eye, vectorScalar(viewdir, d));
-    ur = vectorAdd(ur, vectorScalar(u, (width/2)));
-    ur = vectorAdd(ur, vectorScalar(v, (height/2)));
+    ur = vectorAdd(ur, vectorScalar(u, (width/2.0)));
+    ur = vectorAdd(ur, vectorScalar(v, (height/2.0)));
 
     VectorType ll;
     ll = vectorAdd(eye, vectorScalar(viewdir, d));
-    ll = vectorSubtract(ll, vectorScalar(u, (width/2)));
-    ll = vectorSubtract(ll, vectorScalar(v, (height/2)));
+    ll = vectorSubtract(ll, vectorScalar(u, (width/2.0)));
+    ll = vectorSubtract(ll, vectorScalar(v, (height/2.0)));
 
     VectorType lr;
     lr = vectorAdd(eye, vectorScalar(viewdir, d));
-    lr = vectorAdd(lr, vectorScalar(u, (width/2)));
-    lr = vectorSubtract(lr, vectorScalar(v, (height/2)));
+    lr = vectorAdd(lr, vectorScalar(u, (width/2.0)));
+    lr = vectorSubtract(lr, vectorScalar(v, (height/2.0)));
 
     VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width);
     VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height);
 
     //iterate through each pixel (i, j)
     //viewing window location corresponding to pixel (i, j) == ul + i * ^h + j *^v
-    for(int i = 0; i < width -1; i++){
-        for(int j = 0; j < height -1; j++){
+
+    for(int i = 0; i < px_width -1; i++){
+        for(int j = 0; j < px_height -1; j++){
+            //std::cout << i;
+            //std::cout << j;
             //the point where each ray should pass through the viewing window correspoindng to each pixel
             VectorType intersect_point = vectorAdd(vectorAdd(ul, vectorScalar(h_change, i)), vectorScalar(v_change, j));
             Raytype ray;
             ray.origin = eye;
             ray.intersection = intersect_point;
+
+            float t_closest = -1;
+            int sphere_index;
             
-            //calculate A, B and C for each sphere
+            //for every pixel, iterate through each object in the scene to check for ray intersections
             for(int i = 0; i < sphereArray.size(); i++){
                 float xc = sphereArray[i].x;
                 float yc = sphereArray[i].y;
                 float zc = sphereArray[i].z;
                 float r = sphereArray[i].r;
                 
+                //calculate A, B and C for each sphere
                 float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
                 float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
                 float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
+
+                std::cout << A << std::endl;
+                std::cout << B << std::endl;
+                std::cout << C << std::endl;
                 
+                //check for a positive determinant, if positive then calculate the t values of this object
                 float determinant = (pow(B, 2) - 4*A*C);
                 if(determinant > 0){
-                    float t1 = -1 * B + (std::sqrt(determinant))/2*A;
-                    float t2 = -1 * B - (std::sqrt(determinant))/2*A;
+                    float t1 = -1 * B + (std::sqrt(determinant))/2.0*A;
+                    float t2 = -1 * B - (std::sqrt(determinant))/2.0*A;
                     float t = find_t(t1, t2);
+                    float t_closest = find_t(t, t_closest); //keep track of the closest t of all objects
+                    if(find_t(t, t_closest) == t){
+                        sphere_index = i; //track which object is currently being intercepted first by the ray
+                    }
                 }
                 else{
                     float t = -1;
                 }
                 //how to check closest t-value between different spheres>
                 //have an array of rays, an array of t values (-1 if intersection wasn't found)
-
                 //identifier to knwo which object was intersected: the sphere's index
             }
 
+            if(t_closest == -1){
+                fout << bkgcolor.r << " " << bkgcolor.g << " " << bkgcolor.b << "\n";
+            }
+            else{
+                int mat_index = sphereArray[sphere_index].m;
+                ColorType color = materialArray[mat_index];
+                fout << color.r << " " << color.g << " " << color.b << "\n";
+            }
+            
         }
     }
-
 
     //double for loop to iterate through each pixel (i, j)
     //for each pixel, find the equation of the ray that goes through the pixel at (ul + i * ^h + j *^v)
