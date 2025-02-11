@@ -1,1 +1,10 @@
-eye 1.3345 2.254 3.2545
+eye 0.0 0.0 5.0
+viewdir 2.0 1.0 0.0
+updir 0.0 2.0 1.0
+vfov 60.0
+imsize 5 4
+
+bkgcolor 0.5 0.2 0.2
+
+mtlcolor 0.0 0.0 1.0
+sphere 0.0 0.0 -10.0 4.0
