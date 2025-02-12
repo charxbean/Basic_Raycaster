@@ -293,19 +293,27 @@ int main(int argc, const char * argv[]){
         }
     }
 
+    //create the header for the ppm file
+    fout << "P3\n";
+    fout << px_width << " # image width\n" << px_height << " # image height\n";
+    fout << "255\n";
     
-    
+    //PRELIMINARY MATH
+
     //find vectors u and v
     VectorType u = crossProduct(viewdir, updir);
     normalize(u);
     VectorType v = crossProduct(u, viewdir);
+    //printVector(u);
+    //printVector(v);
 
     //calculate the width and height in 3d world coordinates
-    
-
     float radian_vfov = (vfov * M_PI)/180;
     int height = (2*d*std::tan(0.5 * radian_vfov));
     int width = (px_width / px_height) * height;
+
+    //std::cout << height << std::endl;
+    //std::cout << width << std::endl;
 
     //Find the 4 corners of the viewing window
     VectorType ul;
@@ -318,78 +326,82 @@ int main(int argc, const char * argv[]){
     ur = vectorAdd(eye, vectorScalar(viewdir, d));
     ur = vectorAdd(ur, vectorScalar(u, (width/2.0)));
     ur = vectorAdd(ur, vectorScalar(v, (height/2.0)));
-
+    //printVector(ur);
     VectorType ll;
     ll = vectorAdd(eye, vectorScalar(viewdir, d));
     ll = vectorSubtract(ll, vectorScalar(u, (width/2.0)));
     ll = vectorSubtract(ll, vectorScalar(v, (height/2.0)));
-
+    //printVector(ll);
     VectorType lr;
     lr = vectorAdd(eye, vectorScalar(viewdir, d));
     lr = vectorAdd(lr, vectorScalar(u, (width/2.0)));
     lr = vectorSubtract(lr, vectorScalar(v, (height/2.0)));
 
+    //find change in h and v
     VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width);
+    //printVector(h_change);
     VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height);
+    //printVector(v_change);
 
     //iterate through each pixel (i, j)
-    //viewing window location corresponding to pixel (i, j) == ul + i * ^h + j *^v
+    for(int i = 0; i < px_height; i++){
+        for(int j = 0; j < px_width; j++){
 
-    for(int i = 0; i < px_width -1; i++){
-        for(int j = 0; j < px_height -1; j++){
-            //std::cout << i;
-            //std::cout << j;
             //the point where each ray should pass through the viewing window correspoindng to each pixel
-            VectorType intersect_point = vectorAdd(vectorAdd(ul, vectorScalar(h_change, i)), vectorScalar(v_change, j));
+            VectorType intersect_point = vectorAdd(vectorAdd(ul, vectorScalar(h_change, j)), vectorScalar(v_change, i));
+            //initialize a ray for this pixel
             Raytype ray;
             ray.origin = eye;
             ray.intersection = intersect_point;
+            normalize(ray.intersection);
 
+            //variables to track the closest t value and corresponding object
             float t_closest = -1;
             int sphere_index;
             
             //for every pixel, iterate through each object in the scene to check for ray intersections
-            for(int i = 0; i < sphereArray.size(); i++){
-                float xc = sphereArray[i].x;
-                float yc = sphereArray[i].y;
-                float zc = sphereArray[i].z;
-                float r = sphereArray[i].r;
+            for(int k = 0; k < sphereArray.size(); k++){
+                float xc = sphereArray[k].x;
+                float yc = sphereArray[k].y;
+                float zc = sphereArray[k].z;
+                float r = sphereArray[k].r;
                 
                 //calculate A, B and C for each sphere
                 float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
                 float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
                 float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
 
-                std::cout << A << std::endl;
-                std::cout << B << std::endl;
-                std::cout << C << std::endl;
-                
                 //check for a positive determinant, if positive then calculate the t values of this object
                 float determinant = (pow(B, 2) - 4*A*C);
                 if(determinant > 0){
                     float t1 = -1 * B + (std::sqrt(determinant))/2.0*A;
                     float t2 = -1 * B - (std::sqrt(determinant))/2.0*A;
                     float t = find_t(t1, t2);
-                    float t_closest = find_t(t, t_closest); //keep track of the closest t of all objects
+                    t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
                     if(find_t(t, t_closest) == t){
-                        sphere_index = i; //track which object is currently being intercepted first by the ray
+                        sphere_index = k; //track which object is currently being intercepted first by the ray
                     }
+                    //std::cout << "t: " << t << std::endl;
+                    //std::cout << "t_closest: " << t_closest<<  std::endl;
+                    //std::cout << "find_t: " << find_t(t, t_closest) << std::endl;
+                    
                 }
                 else{
                     float t = -1;
                 }
-                //how to check closest t-value between different spheres>
-                //have an array of rays, an array of t values (-1 if intersection wasn't found)
-                //identifier to knwo which object was intersected: the sphere's index
+                
             }
 
+            //std::cout << t_closest << std::endl;
+            //if t_closest = -1 no valid intersection was found, use the background color for this pixel
+            //if t_closest != -1 then use the material color of the intersected sphere for this pixel
             if(t_closest == -1){
-                fout << bkgcolor.r << " " << bkgcolor.g << " " << bkgcolor.b << "\n";
+                fout << bkgcolor.r*255 << " " << bkgcolor.g*255 << " " << bkgcolor.b*255 << "\n";
             }
             else{
                 int mat_index = sphereArray[sphere_index].m;
                 ColorType color = materialArray[mat_index];
-                fout << color.r << " " << color.g << " " << color.b << "\n";
+                fout << color.r*255 << " " << color.g*255 << " " << color.b*255 << "\n";
             }
             
         }
