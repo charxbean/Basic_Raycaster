@@ -48,14 +48,14 @@ typedef struct{
 
 //equation of a ray = (x, y, z) - t*(dx, dy, dz)
 typedef struct{
-    VectorType origin;
-    VectorType intersection;
+    VectorType origin; //(x, y, z)
+    VectorType intersection; //(dx, dy, dz)
 } Raytype;
 
 //Returns a vector that is the cross product of vectors v1 and v2
 VectorType crossProduct(VectorType v1, VectorType v2){
-    float i = (v1.k * v2.i) - (v2.k * v1.i);
-    float j = (v1.j * v2.k) - (v2.j * v1.k);
+    float i = (v1.j * v2.k) - (v2.j * v1.k);
+    float j = (v2.i * v1.k) - (v1.i * v2.k);
     float k = (v1.i * v2.j) - (v2.i * v1.j);
     VectorType newVector;
     newVector.i = i;
@@ -126,10 +126,10 @@ void normalize(VectorType& v1){
 //finds and returns the closest positive t value beteween t1 and t2, returns -1 if both are invalid
 float find_t(float t1, float t2){
     if(t1 > 0 && t2 > 0){
-        if(t1 > t2){
+        if(t1 < t2){
             return t1;
         }
-        else if(t2 > t1){
+        else if(t2 < t1){
             return t2;
         }else{
             return t1;
@@ -148,42 +148,6 @@ void printVector(VectorType v1){
     std::cout << "<" << v1.i << ", " << v1.j << ", " << v1.k << ">" << std::endl;
 }
 
-//iterate through each object in the scene and check for a ray intersection
-//returns the pixel color at the intersection point, or the background color if no intersection is found
-ColorType TraceRay(Raytype ray, std::vector<SphereType> &sphereArray){
-
-    for(int i = 0; i < sphereArray.size(); i++){
-        float xc = sphereArray[i].x;
-        float yc = sphereArray[i].y;
-        float zc = sphereArray[i].z;
-        float r = sphereArray[i].r;
-        
-        float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
-        float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
-        float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
-        
-        //check if the determinant is negative
-        float determinant = (pow(B, 2) - 4*A*C);
-        if(determinant > 0){
-            float t1 = -1 * B + (std::sqrt(determinant))/2*A;
-            float t2 = -1 * B - (std::sqrt(determinant))/2*A;
-            float t = find_t(t1, t2);
-        }
-        else{
-            float t = -1; //no "valid" t value
-        }
-
-        
-        //identifier to knwo which object was intersected: the sphere's index
-    }
-        ColorType color;
-        color.r = .1;
-        color.g = .2;
-        color.b = .3;
-        //how to check closest t-value between different spheres>
-        //have an array of rays, an array of t values (-1 if intersection wasn't found)
-        return color;
-}
 
 int main(int argc, const char * argv[]){
     
@@ -320,7 +284,7 @@ int main(int argc, const char * argv[]){
     ul = vectorAdd(eye, vectorScalar(viewdir, d)); //e + d*n
     ul = vectorSubtract(ul, vectorScalar(u, (width/2.0))); //(w/2.0) * u
     ul = vectorAdd(ul, vectorScalar(v, (height/2.0))); //(h/2.0) * v
-    //printVector(ul);
+    printVector(ul);
 
     VectorType ur;
     ur = vectorAdd(eye, vectorScalar(viewdir, d));
@@ -338,22 +302,27 @@ int main(int argc, const char * argv[]){
     lr = vectorSubtract(lr, vectorScalar(v, (height/2.0)));
 
     //find change in h and v
-    VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width);
-    //printVector(h_change);
-    VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height);
-    //printVector(v_change);
+    VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width-1);
+    printVector(h_change);
+    VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height-1);
+    printVector(v_change);
 
-    //iterate through each pixel (i, j)
+    //iterate through each pixel (j, i) where i = 0 to px_height-1, and j = 0 to px_width-1.
     for(int i = 0; i < px_height; i++){
         for(int j = 0; j < px_width; j++){
 
             //the point where each ray should pass through the viewing window correspoindng to each pixel
             VectorType intersect_point = vectorAdd(vectorAdd(ul, vectorScalar(h_change, j)), vectorScalar(v_change, i));
             //initialize a ray for this pixel
+
+            //printf("(%d, %d) ray direction: (%f %f %f)\n", i, j, intersect_point.i, intersect_point.j, intersect_point.k);
             Raytype ray;
             ray.origin = eye;
             ray.intersection = intersect_point;
+            //printf("(%d, %d) ray direction: (%f %f %f)\n", i, j, ray.intersection.i, ray.intersection.j, ray.intersection.k);
+            
             normalize(ray.intersection);
+            //printf("(%d, %d) ray direction: (%f %f %f)\n", i, j, ray.intersection.i, ray.intersection.j, ray.intersection.k);
 
             //variables to track the closest t value and corresponding object
             float t_closest = -1;
@@ -370,21 +339,32 @@ int main(int argc, const char * argv[]){
                 float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
                 float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
                 float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
+                
 
                 //check for a positive determinant, if positive then calculate the t values of this object
                 float determinant = (pow(B, 2) - 4*A*C);
+                
                 if(determinant > 0){
-                    float t1 = -1 * B + (std::sqrt(determinant))/2.0*A;
-                    float t2 = -1 * B - (std::sqrt(determinant))/2.0*A;
+                    float t1 = (-B + (std::sqrt(determinant)))/(2.0*A);
+                    float t2 = (-B - (std::sqrt(determinant)))/(2.0*A);
+                    
                     float t = find_t(t1, t2);
                     t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
-                    if(find_t(t, t_closest) == t){
-                        sphere_index = k; //track which object is currently being intercepted first by the ray
+                    if(t_closest == t){
+                        sphere_index = k;
                     }
+                    
                     //std::cout << "t: " << t << std::endl;
                     //std::cout << "t_closest: " << t_closest<<  std::endl;
                     //std::cout << "find_t: " << find_t(t, t_closest) << std::endl;
                     
+                }
+                else if(determinant == 0){
+                    float t = (-B + (std::sqrt(determinant)))/(2.0*A);
+                    t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
+                    if(t_closest == t){
+                        sphere_index = k;
+                    }
                 }
                 else{
                     float t = -1;
@@ -395,6 +375,9 @@ int main(int argc, const char * argv[]){
             //std::cout << t_closest << std::endl;
             //if t_closest = -1 no valid intersection was found, use the background color for this pixel
             //if t_closest != -1 then use the material color of the intersected sphere for this pixel
+            //std::cout << t_closest << std::endl;
+            //std::cout << "closest t " << t_closest << std::endl;
+
             if(t_closest == -1){
                 fout << bkgcolor.r*255 << " " << bkgcolor.g*255 << " " << bkgcolor.b*255 << "\n";
             }
@@ -419,4 +402,34 @@ int main(int argc, const char * argv[]){
     inputFile.close();
     return 0;
 }
+
+/*
+ColorType traceRay(Raytype ray, SphereType sphere){
+    
+    float xc = sphere.x;
+    float yc = sphere.y;
+    float zc = sphere.z;
+    float r = sphere.r;
+    
+    //calculate A, B and C for the sphere
+    float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
+    float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
+    float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
+
+    float determinant = (pow(B, 2) - 4*A*C);
+
+    if(determinant > 0){
+        float t1 = (-B + (std::sqrt(determinant)))/(2.0*A);
+        float t2 = (-B - (std::sqrt(determinant)))/(2.0*A);
+        
+        float t = find_t(t1, t2);
+        t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
+        if(t_closest == t){
+            sphere_index = k;
+        }
+        
+    }
+    
+}
+*/
 
