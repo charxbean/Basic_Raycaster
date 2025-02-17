@@ -41,6 +41,19 @@ typedef struct{
     VectorType intersection; //(dx, dy, dz)
 } Raytype;
 
+//initialize variables for the input
+VectorType eye;
+VectorType viewdir;
+VectorType updir;
+ColorType bkgcolor;
+ColorType mtlcolor;
+
+//array of material colors
+std::vector<ColorType> materialArray;
+
+//array of spheres
+std::vector<SphereType> sphereArray;
+
 //Returns a vector that is the cross product of vectors v1 and v2
 VectorType crossProduct(VectorType v1, VectorType v2){
     float i = (v1.j * v2.k) - (v2.j * v1.k);
@@ -138,6 +151,73 @@ void printVector(VectorType v1){
     std::cout << "<" << v1.i << ", " << v1.j << ", " << v1.k << ">" << std::endl;
 }
 
+//takes the index of a sphere in the sphere array and returns the material color for that sphere
+ColorType shadeRay(int sphere_index){
+    int mat_index = sphereArray[sphere_index].m;
+    ColorType color = materialArray[mat_index];
+    return color;
+}
+
+//checks each object in the scene for a ray intersection and determines the closest valid intersection
+//either returns the color of the object it intersects or returns the background color if no object is intersected
+ColorType traceRay(Raytype ray){
+
+    //variables to track the closest t value and corresponding sphere/object
+    float t_closest = -1;
+    int sphere_index;
+    
+    //iterate through each object in the scene to check for ray intersections
+    for(int k = 0; k < sphereArray.size(); k++){
+        float xc = sphereArray[k].x;
+        float yc = sphereArray[k].y;
+        float zc = sphereArray[k].z;
+        float r = sphereArray[k].r;
+        
+        //calculate A, B and C for each sphere
+        float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
+        float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
+        float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
+        
+
+        //calculate the determinant
+        float determinant = (pow(B, 2) - 4*A*C);
+        
+        //if the determinant is positive then calculate both t values of this object
+        if(determinant > 0){
+            float t1 = (-B + (std::sqrt(determinant)))/(2.0*A);
+            float t2 = (-B - (std::sqrt(determinant)))/(2.0*A);
+            
+            float t = find_t(t1, t2); //find the closest positive t value out of the 2 calculated
+            t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
+            if(t_closest == t){
+                sphere_index = k; //keep track of the sphere index corresponding to the closest t value
+            }
+            
+        } //if the determinant is 0 then calculate the t value of this object
+        else if(determinant == 0){
+            float t = (-B + (std::sqrt(determinant)))/(2.0*A);
+            t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
+            if(t_closest == t){
+                sphere_index = k; //keep track of the sphere index corresponding to the closest t value
+            }
+        }
+        else{ //if no valid t value is found, t = -1
+            float t = -1;
+        }
+        
+    }
+
+    //after iterating through every object, use the closest t value to determine the pixel color
+    //if no valid t value was found, set the pixel to the background color
+        if(t_closest == -1){
+        return bkgcolor;
+    }
+    else{
+        return shadeRay(sphere_index);
+    }
+    return bkgcolor;
+}
+
 //Main function
 int main(int argc, const char * argv[]){
     
@@ -167,20 +247,6 @@ int main(int argc, const char * argv[]){
         std::cerr << "Error: unable to open output file " << newFilename << std::endl;
         return -1; 
     } 
-
-    //initialize variables for the input
-    VectorType eye;
-    VectorType viewdir;
-    VectorType updir;
-    ColorType bkgcolor;
-    ColorType mtlcolor;
-
-    //array of material colors
-    std::vector<ColorType> materialArray;
-
-    //array of spheres
-    std::vector<SphereType> sphereArray;
-
 
     //read each line of the input file and put file data into respective variables/structs
     std::string line;
@@ -299,69 +365,14 @@ int main(int argc, const char * argv[]){
             Raytype ray;
             ray.origin = eye;
             ray.intersection = intersect_point;
-            
             normalize(ray.intersection);
 
-            //variables to track the closest t value and corresponding sphere/object
-            float t_closest = -1;
-            int sphere_index;
-            
-            //for every pixel, iterate through each object in the scene to check for ray intersections
-            for(int k = 0; k < sphereArray.size(); k++){
-                float xc = sphereArray[k].x;
-                float yc = sphereArray[k].y;
-                float zc = sphereArray[k].z;
-                float r = sphereArray[k].r;
-                
-                //calculate A, B and C for each sphere
-                float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
-                float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
-                float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
-                
-
-                //calculate the determinant
-                float determinant = (pow(B, 2) - 4*A*C);
-                
-                //if the determinant is positive then calculate both t values of this object
-                if(determinant > 0){
-                    float t1 = (-B + (std::sqrt(determinant)))/(2.0*A);
-                    float t2 = (-B - (std::sqrt(determinant)))/(2.0*A);
-                    
-                    float t = find_t(t1, t2); //find the closest positive t value out of the 2 calculated
-                    t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
-                    if(t_closest == t){
-                        sphere_index = k; //keep track of the sphere index corresponding to the closest t value
-                    }
-                    
-                } //if the determinant is 0 then calculate the t value of this object
-                else if(determinant == 0){
-                    float t = (-B + (std::sqrt(determinant)))/(2.0*A);
-                    t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
-                    if(t_closest == t){
-                        sphere_index = k; //keep track of the sphere index corresponding to the closest t value
-                    }
-                }
-                else{ //if no valid t value is found, t = -1
-                    float t = -1;
-                }
-                
-            }
-
-            //after iterating through every object, use the closest t value to determine the pixel color
-            //if no valid t value was found, set the pixel to the background color
-            if(t_closest == -1){
-                fout << bkgcolor.r*255 << " " << bkgcolor.g*255 << " " << bkgcolor.b*255 << "\n";
-            }
-            else{
-                int mat_index = sphereArray[sphere_index].m;
-                ColorType color = materialArray[mat_index];
-                fout << color.r*255 << " " << color.g*255 << " " << color.b*255 << "\n"; //write each pixels color directly to the ppm file
-            }
-            
+            //use trace ray to find the color for each pixel
+            ColorType color = traceRay(ray);
+            fout << color.r * 255 << " " << color.g * 255 << " " << color.b * 255 << std::endl;
         }
     }
 
     inputFile.close();
     return 0;
 }
-
