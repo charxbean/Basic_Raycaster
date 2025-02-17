@@ -9,3 +9,9 @@ sphere 0 0 15 2
 
 mtlcolor 0 1 0
 sphere 4 4 15 1
+
+mtlcolor 0 0 1
+sphere 10 4 15 1
+sphere -10 -4 15 1
+sphere 10 -4 15 1
+sphere -10 4 15 1

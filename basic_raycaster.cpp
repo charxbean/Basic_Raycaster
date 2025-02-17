@@ -7,23 +7,12 @@
 #include <cctype>
 #include <algorithm>
 
-//read text file from command line
-
-//create PPM output file like last assignment
-
-/*
-You need to provide build / run instructions and input files.
- Points will be deducted on future assignments.
-
- -- Check what that means????
-*/
-
 //vector type for: eye, viewdir, updir
 typedef struct{
     float i, j, k;
 } VectorType;
 
-//h_fov;
+//vfov
 float vfov;
 
 //imsize;
@@ -39,7 +28,7 @@ typedef struct{
 } ColorType;
 
 //sphere defined by it's center point (x, y, z) and a radius
-    //has m as it's material property -> an index into an array of material properties
+//has m as it's material property -> an index into an array of material properties
 typedef struct{
     float x, y, z;
     float r;
@@ -115,7 +104,7 @@ VectorType vectorDivide(VectorType v1, float scalar){
     return newVec;
 }
 
-//normalizes the input vector v1
+//normalizes the vector v1
 void normalize(VectorType& v1){
     float length = std::sqrt(pow(v1.i, 2) + pow(v1.j, 2) + pow(v1.k, 2));
     v1.i = v1.i/length;
@@ -143,15 +132,16 @@ float find_t(float t1, float t2){
         return -1;
     }
 }
+
 //prints a vector to the terminal
 void printVector(VectorType v1){
     std::cout << "<" << v1.i << ", " << v1.j << ", " << v1.k << ">" << std::endl;
 }
 
-
+//Main function
 int main(int argc, const char * argv[]){
     
-    //check for one input file name
+    //check for exactly one input file name as a command line arg, otherwise error
     if(argc < 2){
         std::cerr << "Format: executable file.txt" << std::endl;
         return -1;
@@ -173,8 +163,12 @@ int main(int argc, const char * argv[]){
     //open the output file stream, set the output file name as input filename.ppm
     std::string newFilename = filename.erase(filename.length() - 4, 4);
     std::ofstream fout(newFilename + ".ppm"); 
-    if(fout.fail()) return -1; //error opening file
+    if(fout.fail()){
+        std::cerr << "Error: unable to open output file " << newFilename << std::endl;
+        return -1; 
+    } 
 
+    //initialize variables for the input
     VectorType eye;
     VectorType viewdir;
     VectorType updir;
@@ -184,9 +178,6 @@ int main(int argc, const char * argv[]){
     //array of material colors
     std::vector<ColorType> materialArray;
 
-    //the array of pixel colors to be output to the PPM file
-    std::vector<ColorType> outputColors;
-    
     //array of spheres
     std::vector<SphereType> sphereArray;
 
@@ -213,9 +204,9 @@ int main(int argc, const char * argv[]){
 
         if (word == "sphere") {
             if (ss >> num1 >> num2 >> num3 >> num4) {
-                SphereType sphere{num1, num2, num3, num4, static_cast<int>(materialArray.size() - 1)};
-                sphereArray.push_back(sphere);
-                //fout << word << " " << num1 << " " << num2 << " " << num3 << " " << num4 << std::endl;
+                //set sphere material to the index of the last material in the material array
+                SphereType sphere = {num1, num2, num3, num4, static_cast<int>(materialArray.size() - 1)};
+                sphereArray.push_back(sphere); //add spheres to the spere array
             } else {
                 std::cerr << "Error parsing sphere line: " << line << std::endl;
             }
@@ -228,26 +219,23 @@ int main(int argc, const char * argv[]){
                 if (word == "bkgcolor")    bkgcolor = {num1, num2, num3};
                 if (word == "mtlcolor") {
                     mtlcolor = {num1, num2, num3};
-                    materialArray.push_back(mtlcolor);
+                    materialArray.push_back(mtlcolor); //add new material to the material array
                 }
-                //fout << word << " " << num1 << " " << num2 << " " << num3 << std::endl;
             } else {
-                std::cerr << "Error parsing 3-float line: " << line << std::endl;
+                std::cerr << "Error parsing " << word << " line: " << line << std::endl;
             }
         }
         else if (word == "imsize") {
             if (ss >> num1 >> num2) {
                 px_width = num1;
                 px_height = num2;
-                //fout << word << " " << num1 << " " << num2 << std::endl;
             } else {
                 std::cerr << "Error parsing imsize line: " << line << std::endl;
             }
         }
         else if (word == "vfov") {
             if (ss >> num1) {
-                if (word == "vfov") vfov = num1;
-                //fout << word << " " << num1 << std::endl;
+               vfov = num1;
             } else {
                 std::cerr << "Error parsing vfov line: " << line << std::endl;
             }
@@ -268,34 +256,28 @@ int main(int argc, const char * argv[]){
     VectorType u = crossProduct(viewdir, updir);
     normalize(u);
     VectorType v = crossProduct(u, viewdir);
-    //printVector(u);
-    //printVector(v);
 
     //calculate the width and height in 3d world coordinates
     float radian_vfov = (vfov * M_PI)/180;
     int height = (2*d*std::tan(0.5 * radian_vfov));
     int width = (px_width / px_height) * height;
 
-    //std::cout << height << std::endl;
-    //std::cout << width << std::endl;
-
     //Find the 4 corners of the viewing window
     VectorType ul;
     ul = vectorAdd(eye, vectorScalar(viewdir, d)); //e + d*n
     ul = vectorSubtract(ul, vectorScalar(u, (width/2.0))); //(w/2.0) * u
     ul = vectorAdd(ul, vectorScalar(v, (height/2.0))); //(h/2.0) * v
-    printVector(ul);
 
     VectorType ur;
     ur = vectorAdd(eye, vectorScalar(viewdir, d));
     ur = vectorAdd(ur, vectorScalar(u, (width/2.0)));
     ur = vectorAdd(ur, vectorScalar(v, (height/2.0)));
-    //printVector(ur);
+    
     VectorType ll;
     ll = vectorAdd(eye, vectorScalar(viewdir, d));
     ll = vectorSubtract(ll, vectorScalar(u, (width/2.0)));
     ll = vectorSubtract(ll, vectorScalar(v, (height/2.0)));
-    //printVector(ll);
+   
     VectorType lr;
     lr = vectorAdd(eye, vectorScalar(viewdir, d));
     lr = vectorAdd(lr, vectorScalar(u, (width/2.0)));
@@ -303,9 +285,8 @@ int main(int argc, const char * argv[]){
 
     //find change in h and v
     VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width-1);
-    printVector(h_change);
+    
     VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height-1);
-    printVector(v_change);
 
     //iterate through each pixel (j, i) where i = 0 to px_height-1, and j = 0 to px_width-1.
     for(int i = 0; i < px_height; i++){
@@ -313,18 +294,15 @@ int main(int argc, const char * argv[]){
 
             //the point where each ray should pass through the viewing window correspoindng to each pixel
             VectorType intersect_point = vectorAdd(vectorAdd(ul, vectorScalar(h_change, j)), vectorScalar(v_change, i));
-            //initialize a ray for this pixel
 
-            //printf("(%d, %d) ray direction: (%f %f %f)\n", i, j, intersect_point.i, intersect_point.j, intersect_point.k);
+            //initialize a ray for this pixel
             Raytype ray;
             ray.origin = eye;
             ray.intersection = intersect_point;
-            //printf("(%d, %d) ray direction: (%f %f %f)\n", i, j, ray.intersection.i, ray.intersection.j, ray.intersection.k);
             
             normalize(ray.intersection);
-            //printf("(%d, %d) ray direction: (%f %f %f)\n", i, j, ray.intersection.i, ray.intersection.j, ray.intersection.k);
 
-            //variables to track the closest t value and corresponding object
+            //variables to track the closest t value and corresponding sphere/object
             float t_closest = -1;
             int sphere_index;
             
@@ -341,95 +319,49 @@ int main(int argc, const char * argv[]){
                 float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
                 
 
-                //check for a positive determinant, if positive then calculate the t values of this object
+                //calculate the determinant
                 float determinant = (pow(B, 2) - 4*A*C);
                 
+                //if the determinant is positive then calculate both t values of this object
                 if(determinant > 0){
                     float t1 = (-B + (std::sqrt(determinant)))/(2.0*A);
                     float t2 = (-B - (std::sqrt(determinant)))/(2.0*A);
                     
-                    float t = find_t(t1, t2);
+                    float t = find_t(t1, t2); //find the closest positive t value out of the 2 calculated
                     t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
                     if(t_closest == t){
-                        sphere_index = k;
+                        sphere_index = k; //keep track of the sphere index corresponding to the closest t value
                     }
                     
-                    //std::cout << "t: " << t << std::endl;
-                    //std::cout << "t_closest: " << t_closest<<  std::endl;
-                    //std::cout << "find_t: " << find_t(t, t_closest) << std::endl;
-                    
-                }
+                } //if the determinant is 0 then calculate the t value of this object
                 else if(determinant == 0){
                     float t = (-B + (std::sqrt(determinant)))/(2.0*A);
                     t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
                     if(t_closest == t){
-                        sphere_index = k;
+                        sphere_index = k; //keep track of the sphere index corresponding to the closest t value
                     }
                 }
-                else{
+                else{ //if no valid t value is found, t = -1
                     float t = -1;
                 }
                 
             }
 
-            //std::cout << t_closest << std::endl;
-            //if t_closest = -1 no valid intersection was found, use the background color for this pixel
-            //if t_closest != -1 then use the material color of the intersected sphere for this pixel
-            //std::cout << t_closest << std::endl;
-            //std::cout << "closest t " << t_closest << std::endl;
-
+            //after iterating through every object, use the closest t value to determine the pixel color
+            //if no valid t value was found, set the pixel to the background color
             if(t_closest == -1){
                 fout << bkgcolor.r*255 << " " << bkgcolor.g*255 << " " << bkgcolor.b*255 << "\n";
             }
             else{
                 int mat_index = sphereArray[sphere_index].m;
                 ColorType color = materialArray[mat_index];
-                fout << color.r*255 << " " << color.g*255 << " " << color.b*255 << "\n";
+                fout << color.r*255 << " " << color.g*255 << " " << color.b*255 << "\n"; //write each pixels color directly to the ppm file
             }
             
         }
     }
 
-    //double for loop to iterate through each pixel (i, j)
-    //for each pixel, find the equation of the ray that goes through the pixel at (ul + i * ^h + j *^v)
-    //for each ray, check if it intersects with a sphere by checking the discriminant
-    //if the discriminant is positive then find the intersecting points using the quadratic equation and choose the closest intersection
-    //determine which sphere it is by it's position and get it's material color from that sphere's struct
-    //put that color into the array corresponding to that pixel
-
-    //at the end, output the color data in the array to the output file
-    
     inputFile.close();
     return 0;
 }
-
-/*
-ColorType traceRay(Raytype ray, SphereType sphere){
-    
-    float xc = sphere.x;
-    float yc = sphere.y;
-    float zc = sphere.z;
-    float r = sphere.r;
-    
-    //calculate A, B and C for the sphere
-    float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
-    float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
-    float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
-
-    float determinant = (pow(B, 2) - 4*A*C);
-
-    if(determinant > 0){
-        float t1 = (-B + (std::sqrt(determinant)))/(2.0*A);
-        float t2 = (-B - (std::sqrt(determinant)))/(2.0*A);
-        
-        float t = find_t(t1, t2);
-        t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
-        if(t_closest == t){
-            sphere_index = k;
-        }
-        
-    }
-    
-}
-*/
 
