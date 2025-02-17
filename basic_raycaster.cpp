@@ -27,6 +27,13 @@ typedef struct{
     float r, g, b;
 } ColorType;
 
+typedef struct{
+    ColorType Od;
+    ColorType Os;
+    float ka, kd, ks;
+    int n;
+}MaterialColor;
+
 //sphere defined by it's center point (x, y, z) and a radius
 //has m as it's material property -> an index into an array of material properties
 typedef struct{
@@ -41,18 +48,36 @@ typedef struct{
     VectorType intersection; //(dx, dy, dz)
 } Raytype;
 
+//type 1 = point light 
+//type 0 = directional light
+typedef struct{
+    VectorType position;
+    int type;
+    float intensity;
+}LightType;
+
+typedef struct{
+    ColorType depth_color;
+    float a_min, a_max, dist_near, dist_far;
+}DepthCue;
+
 //initialize variables for the input
 VectorType eye;
 VectorType viewdir;
 VectorType updir;
 ColorType bkgcolor;
-ColorType mtlcolor;
+MaterialColor mtlcolor;
+LightType light;
+DepthCue depth;
 
 //array of material colors
-std::vector<ColorType> materialArray;
+std::vector<MaterialColor> materialArray;
 
 //array of spheres
 std::vector<SphereType> sphereArray;
+
+//array of light sources
+std::vector<LightType> lightArray;
 
 //Returns a vector that is the cross product of vectors v1 and v2
 VectorType crossProduct(VectorType v1, VectorType v2){
@@ -154,7 +179,7 @@ void printVector(VectorType v1){
 //takes the index of a sphere in the sphere array and returns the material color for that sphere
 ColorType shadeRay(int sphere_index){
     int mat_index = sphereArray[sphere_index].m;
-    ColorType color = materialArray[mat_index];
+    ColorType color = materialArray[mat_index].Os;
     return color;
 }
 
@@ -259,7 +284,8 @@ int main(int argc, const char * argv[]){
 
         std::istringstream ss(line);
         std::string word;
-        float num1, num2, num3, num4;
+        float num1, num2, num3, num4, num5, num6, num7, num8, num9;
+        int num10;
 
         ss >> word; //Read the first word of every line
 
@@ -268,7 +294,40 @@ int main(int argc, const char * argv[]){
             continue;
         }
 
-        if (word == "sphere") {
+        if (word == "mtlcolor"){
+            if (ss >> num1 >> num2 >> num3 >> num4 >> num5 >> num6 >> num7 >> num8 >> num9 >> num10){
+                ColorType Od = {num1, num2, num3};
+                ColorType Os = {num4, num5, num6};
+                mtlcolor = {Od, Os, num7, num8, num9, num10};
+                materialArray.push_back(mtlcolor); //add new material to the material array
+            }
+            else{
+                std::cerr << "Error parsing mtcolor line: " << line << std::endl;
+            }
+        }
+        else if (word == "depthcueing"){
+            if(ss >> num1 >> num2 >> num3 >> num4 >> num5 >> num6 >> num7){
+                ColorType depth_color = {num1, num2, num3};
+                depth = {depth_color, num4, num5, num6, num7};
+            }
+            else{
+                std::cerr << "Error parsing depthcueing line: " << line << std::endl;
+            }
+        }
+        else if (word == "light"){
+            if (ss >> num1 >> num2 >> num3 >> num4 >> num5){
+                if(num4 != 1 || num4 != 0){
+                    std::cerr << "Error in depthcueing line, input 4: light type must be 0 (directional) or 1 (point)" << std::endl;
+                }
+                VectorType position = {num1, num2, num3}; 
+                light = {position, static_cast<int>(num4), num5};
+                lightArray.push_back(light);
+            }
+            else{
+                std::cerr << "Error parsing light line: " << line << std::endl;
+            }
+        }
+        else if (word == "sphere") {
             if (ss >> num1 >> num2 >> num3 >> num4) {
                 //set sphere material to the index of the last material in the material array
                 SphereType sphere = {num1, num2, num3, num4, static_cast<int>(materialArray.size() - 1)};
@@ -277,16 +336,12 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Error parsing sphere line: " << line << std::endl;
             }
         }
-        else if (word == "eye" || word == "viewdir" || word == "updir" || word == "bkgcolor" || word == "mtlcolor") {
+        else if (word == "eye" || word == "viewdir" || word == "updir" || word == "bkgcolor") {
             if (ss >> num1 >> num2 >> num3) {
                 if (word == "eye")         eye = {num1, num2, num3};
                 if (word == "viewdir")     viewdir = {num1, num2, num3};
                 if (word == "updir")       updir = {num1, num2, num3};
                 if (word == "bkgcolor")    bkgcolor = {num1, num2, num3};
-                if (word == "mtlcolor") {
-                    mtlcolor = {num1, num2, num3};
-                    materialArray.push_back(mtlcolor); //add new material to the material array
-                }
             } else {
                 std::cerr << "Error parsing " << word << " line: " << line << std::endl;
             }
