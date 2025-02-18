@@ -4,6 +4,6 @@ viewdir 0 0 1
 vfov 45
 updir 0 1 0
 bkgcolor .2 .2 .2
-light 0 5 -15 1 .2
-mtlcolor 0 0 1 0 0 1 .8 .8 .8 5
+light 4 7 -15 1 .2
+mtlcolor 0 0 1 1 1 1 .8 .8 1 15
 sphere 0 0 15 2

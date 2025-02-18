@@ -156,24 +156,6 @@ VectorType vectorDivide(VectorType v1, float scalar){
     return newVec;
 }
 
-//Multiplies each channel in a color by a float value to adjust the intensity
-ColorType colorMultiply(ColorType color, float intensity){
-    ColorType newColor;
-    newColor.r = color.r * intensity;
-    newColor.g = color.g * intensity;
-    newColor.b = color.b * intensity;
-    return newColor;
-}
-
-//add the rgb of 2 colors together
-ColorType colorAdd(ColorType c1, ColorType c2){
-    ColorType newColor;
-    newColor.r = c1.r + c2.r;
-    newColor.g = c1.g + c2.g;
-    newColor.b = c1.b + c2.b;
-    return newColor;
-}
-
 //gets the length of a vector
 float vectorLength(VectorType v1){
     float length = std::sqrt(pow(v1.i, 2) + pow(v1.j, 2) + pow(v1.k, 2));
@@ -216,6 +198,48 @@ float max(float a, float b){
     }
     else{
         return b;
+    }
+}
+
+//Multiplies each channel in a color by a float value to adjust the intensity
+ColorType colorMultiply(ColorType color, float intensity){
+    ColorType newColor;
+    newColor.r = color.r * intensity;
+    newColor.g = color.g * intensity;
+    newColor.b = color.b * intensity;
+    return newColor;
+}
+
+//add the rgb of 2 colors together
+ColorType colorAdd(ColorType c1, ColorType c2){
+    ColorType newColor;
+    newColor.r = c1.r + c2.r;
+    newColor.g = c1.g + c2.g;
+    newColor.b = c1.b + c2.b;
+    return newColor;
+}
+
+//makes sure a color's rgb values stay between 0 and 1
+void clampColor(ColorType &c){
+    if(c.r > 1){
+        c.r = 1;
+    }
+    else if(c.r < 0){
+        c.r = 0;
+    }
+
+    if(c.g > 1){
+        c.g = 1;
+    }
+    else if(c.g < 0){
+        c.g = 0;
+    }
+
+    if(c.b > 1){
+        c.b = 1;
+    }
+    else if(c.b < 0){
+        c.b = 0;
     }
 }
 
@@ -278,12 +302,11 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         ColorType specular = colorMultiply(material.Os, material.ks); //ks * Os
         float max_NH = max(0.0, dotProduct(vector_N, vector_H));
         specular = colorMultiply(specular, pow(max_NH, material.n)); //(ks * Os) * (N dot H)^n
-        
-        //intensity += IL(diffuse + specular)
+
         illumination = colorAdd(illumination, colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity));
         
     }
-    //printColor(illumination);
+    clampColor(illumination);
     return illumination;
 }
 
