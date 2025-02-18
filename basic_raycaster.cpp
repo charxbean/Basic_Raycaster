@@ -306,6 +306,7 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         illumination = colorAdd(illumination, colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity));
         
     }
+
     clampColor(illumination);
     return illumination;
 }
@@ -553,11 +554,15 @@ int main(int argc, const char * argv[]){
     //calculate the vector L for Blinn model of the directional lights
     for(int k = 0; k < lightArray.size(); k++){
         if(lightArray[k].type == 0){
-            VectorType L_inv = {-vector_L.i, -vector_L.j, -vector_L.k};
-            vector_L = vectorDivide(L_inv, vectorLength(L_inv));
-            normalize(vector_L);
-            //insert this L vector into the L array at the same index the light is at in light array
-            L_array.insert(L_array.begin() + k, vector_L);
+            VectorType L_inv = {-1 * vector_L.i, -1 * vector_L.j, -1 * vector_L.k};
+            if(vector_L.i == 0 && vector_L.j == 0 && vector_L.k == 0){ //if zero vector, dont divide by 0
+                L_array.insert(L_array.begin() + k, vector_L);
+            }
+            else{
+                vector_L = vectorDivide(L_inv, vectorLength(L_inv));
+                 //insert this L vector into the L array at the same index the light is at in light array
+                L_array.insert(L_array.begin() + k, vector_L);
+            }
         }
     }
 
