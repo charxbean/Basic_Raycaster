@@ -157,7 +157,7 @@ VectorType vectorDivide(VectorType v1, float scalar){
 }
 
 //Multiplies each channel in a color by a float value to adjust the intensity
-ColorType colorIntensity(ColorType color, float intensity){
+ColorType colorMultiply(ColorType color, float intensity){
     ColorType newColor;
     newColor.r = color.r * intensity;
     newColor.g = color.g * intensity;
@@ -209,11 +209,24 @@ float find_t(float t1, float t2){
     }
 }
 
+//returns the max of 2 float values
+float max(float a, float b){
+    if(a > b){
+        return a;
+    }
+    else{
+        return b;
+    }
+}
+
 //prints a vector to the terminal
 void printVector(VectorType v1){
     std::cout << "<" << v1.i << ", " << v1.j << ", " << v1.k << ">" << std::endl;
 }
 
+void printColor(ColorType color){
+    std::cout << "r: " << color.r << ", g: " << color.g << ", b: " << color.b << std::endl;
+}
 
 //Initialize vectors N, L and H which will be computed for each sphere/object
 VectorType vector_N;
@@ -227,6 +240,7 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
     MaterialColor material = materialArray[mat_index];
     SphereType sphere = sphereArray[sphere_index];
     VectorType intersection = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
+
     //Calculate illumination 
     //calculate N, L and H
     vector_N = vectorDivide(vectorSubtract(intersection, sphere.center), sphere.r);
@@ -245,26 +259,32 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
     }
     //Define V
     vector_V = vectorDivide(vectorSubtract(ray.origin, ray.intersection), vectorLength(vectorSubtract(ray.origin, ray.intersection)));
-
+    normalize(vector_V);
+    
     //initialize intensity
-    ColorType intensity = colorIntensity(material.Od, material.ka); //ka + Od
+    ColorType illumination = colorMultiply(material.Od, material.ka); //ka + Od
 
     //for each light source, compute it's intensity and add to the total intensity value
     for(int k = 0; k < lightArray.size(); k++){
         //define H for each light
         vector_H = vectorDivide(vectorAdd(L_array[k], vector_V), 2); //H = (L + V) /2
         vector_H = vectorDivide(vector_H, vectorLength(vector_H)); // H = H / ||H||
+        normalize(vector_H);
 
-        ColorType diffuse = colorIntensity(material.Od, material.kd);
-        diffuse = colorIntensity(diffuse, dotProduct(vector_N, L_array[k]));
-        ColorType specular = colorIntensity(material.Os, material.ks); //ks * Os
-        specular = colorIntensity(specular, pow(dotProduct(vector_N, vector_H), material.n)); //(ks * Os) * (N dot H)^n
+        ColorType diffuse = colorMultiply(material.Od, material.kd); //kd * od
+        float max_NL = max(0.0, dotProduct(vector_N, L_array[k]));
+        diffuse = colorMultiply(diffuse, max_NL);
 
+        ColorType specular = colorMultiply(material.Os, material.ks); //ks * Os
+        float max_NH = max(0.0, dotProduct(vector_N, vector_H));
+        specular = colorMultiply(specular, pow(max_NH, material.n)); //(ks * Os) * (N dot H)^n
+        
         //intensity += IL(diffuse + specular)
-        intensity = colorAdd(intensity, colorIntensity(colorAdd(diffuse, specular), lightArray[k].intensity));
+        illumination = colorAdd(illumination, colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity));
+        
     }
-
-    return intensity;
+    //printColor(illumination);
+    return illumination;
 }
 
 
@@ -530,10 +550,9 @@ int main(int argc, const char * argv[]){
             ray.origin = eye;
             ray.intersection = intersect_point;
             normalize(ray.intersection);
-
             //use trace ray to find the color for each pixel
             ColorType color = traceRay(ray);
-            fout << color.r * 255 << " " << color.g * 255 << " " << color.b * 255 << std::endl;
+            fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
         }
     }
 
