@@ -37,7 +37,7 @@ typedef struct{
 //sphere defined by it's center point (x, y, z) and a radius
 //has m as it's material property -> an index into an array of material properties
 typedef struct{
-    float x, y, z;
+    VectorType center;
     float r;
     int m;
 } SphereType;
@@ -61,6 +61,11 @@ typedef struct{
     float a_min, a_max, dist_near, dist_far;
 }DepthCue;
 
+typedef struct{
+    LightType light;
+    float c1, c2, c3;
+}AttlightType;
+
 //initialize variables for the input
 VectorType eye;
 VectorType viewdir;
@@ -69,6 +74,7 @@ ColorType bkgcolor;
 MaterialColor mtlcolor;
 LightType light;
 DepthCue depth;
+AttlightType attlight;
 
 //array of material colors
 std::vector<MaterialColor> materialArray;
@@ -78,6 +84,9 @@ std::vector<SphereType> sphereArray;
 
 //array of light sources
 std::vector<LightType> lightArray;
+
+//array of L vectors that corresponds to each light in the light array
+std::vector<VectorType> L_array;
 
 //Returns a vector that is the cross product of vectors v1 and v2
 VectorType crossProduct(VectorType v1, VectorType v2){
@@ -92,6 +101,11 @@ VectorType crossProduct(VectorType v1, VectorType v2){
     return newVector;
 }
 
+//Computes the dot product of 2 vectors
+float dotProduct(VectorType v1, VectorType v2){
+    float dot = (v1.i * v2.i) + (v1.j * v2.j) + (v1.k * v2.k);
+    return dot;
+}
 //returns a new vector that is the sum of vectors v1 and v2
 VectorType vectorAdd(VectorType v1, VectorType v2){
     VectorType newVec;
@@ -142,9 +156,33 @@ VectorType vectorDivide(VectorType v1, float scalar){
     return newVec;
 }
 
+//Multiplies each channel in a color by a float value to adjust the intensity
+ColorType colorIntensity(ColorType color, float intensity){
+    ColorType newColor;
+    newColor.r = color.r * intensity;
+    newColor.g = color.g * intensity;
+    newColor.b = color.b * intensity;
+    return newColor;
+}
+
+//add the rgb of 2 colors together
+ColorType colorAdd(ColorType c1, ColorType c2){
+    ColorType newColor;
+    newColor.r = c1.r + c2.r;
+    newColor.g = c1.g + c2.g;
+    newColor.b = c1.b + c2.b;
+    return newColor;
+}
+
+//gets the length of a vector
+float vectorLength(VectorType v1){
+    float length = std::sqrt(pow(v1.i, 2) + pow(v1.j, 2) + pow(v1.k, 2));
+    return length;
+}
+
 //normalizes the vector v1
 void normalize(VectorType& v1){
-    float length = std::sqrt(pow(v1.i, 2) + pow(v1.j, 2) + pow(v1.k, 2));
+    float length = vectorLength(v1);
     v1.i = v1.i/length;
     v1.j = v1.j / length;
     v1.k = v1.k/length;
@@ -176,12 +214,59 @@ void printVector(VectorType v1){
     std::cout << "<" << v1.i << ", " << v1.j << ", " << v1.k << ">" << std::endl;
 }
 
+
+//Initialize vectors N, L and H which will be computed for each sphere/object
+VectorType vector_N;
+VectorType vector_L;
+VectorType vector_H;
+VectorType vector_V;
+
 //takes the index of a sphere in the sphere array and returns the material color for that sphere
-ColorType shadeRay(int sphere_index){
+ColorType shadeRay(int sphere_index, Raytype ray, float t){
     int mat_index = sphereArray[sphere_index].m;
-    ColorType color = materialArray[mat_index].Os;
-    return color;
+    MaterialColor material = materialArray[mat_index];
+    SphereType sphere = sphereArray[sphere_index];
+    VectorType intersection = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
+    //Calculate illumination 
+    //calculate N, L and H
+    vector_N = vectorDivide(vectorSubtract(intersection, sphere.center), sphere.r);
+    normalize(vector_N);
+
+    //calculate L for each point light source
+    for(int k = 0; k < lightArray.size(); k++){
+        if(lightArray[k].type == 1){
+            //calculate light_position - surface position
+            VectorType new_L = vectorSubtract(lightArray[k].position, intersection);
+            //calculate vector L
+            vector_L = vectorDivide(new_L, vectorLength(new_L));
+            normalize(vector_L);
+            L_array.insert(L_array.begin() + k, vector_L);
+        }
+    }
+    //Define V
+    vector_V = vectorDivide(vectorSubtract(ray.origin, ray.intersection), vectorLength(vectorSubtract(ray.origin, ray.intersection)));
+
+    //initialize intensity
+    ColorType intensity = colorIntensity(material.Od, material.ka); //ka + Od
+
+    //for each light source, compute it's intensity and add to the total intensity value
+    for(int k = 0; k < lightArray.size(); k++){
+        //define H for each light
+        vector_H = vectorDivide(vectorAdd(L_array[k], vector_V), 2); //H = (L + V) /2
+        vector_H = vectorDivide(vector_H, vectorLength(vector_H)); // H = H / ||H||
+
+        ColorType diffuse = colorIntensity(material.Od, material.kd);
+        diffuse = colorIntensity(diffuse, dotProduct(vector_N, L_array[k]));
+        ColorType specular = colorIntensity(material.Os, material.ks); //ks * Os
+        specular = colorIntensity(specular, pow(dotProduct(vector_N, vector_H), material.n)); //(ks * Os) * (N dot H)^n
+
+        //intensity += IL(diffuse + specular)
+        intensity = colorAdd(intensity, colorIntensity(colorAdd(diffuse, specular), lightArray[k].intensity));
+    }
+
+    return intensity;
 }
+
 
 //checks each object in the scene for a ray intersection and determines the closest valid intersection
 //either returns the color of the object it intersects or returns the background color if no object is intersected
@@ -193,9 +278,9 @@ ColorType traceRay(Raytype ray){
     
     //iterate through each object in the scene to check for ray intersections
     for(int k = 0; k < sphereArray.size(); k++){
-        float xc = sphereArray[k].x;
-        float yc = sphereArray[k].y;
-        float zc = sphereArray[k].z;
+        float xc = sphereArray[k].center.i;
+        float yc = sphereArray[k].center.j;
+        float zc = sphereArray[k].center.k;
         float r = sphereArray[k].r;
         
         //calculate A, B and C for each sphere
@@ -234,11 +319,11 @@ ColorType traceRay(Raytype ray){
 
     //after iterating through every object, use the closest t value to determine the pixel color
     //if no valid t value was found, set the pixel to the background color
-        if(t_closest == -1){
+    if(t_closest == -1){
         return bkgcolor;
     }
     else{
-        return shadeRay(sphere_index);
+        return shadeRay(sphere_index, ray, t_closest);
     }
     return bkgcolor;
 }
@@ -305,6 +390,18 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Error parsing mtcolor line: " << line << std::endl;
             }
         }
+        else if (word == "attlight"){
+            if(ss >> num1 >> num2 >> num3 >> num4 >> num5 >> num6 >> num7 >> num8){
+                if(num4 != 1 && num4 != 0){
+                    std::cerr << "Error in attlight line, input 4: light type must be 0 (directional) or 1 (point)" << std::endl;
+                }
+                LightType a_light = {num1, num2, num3, static_cast<int>(num4), num5};
+                attlight = {a_light, num6, num7, num8};
+            }
+            else{
+                std::cerr << "Error parsing attlight line: " << line << std::endl;
+            }
+        }
         else if (word == "depthcueing"){
             if(ss >> num1 >> num2 >> num3 >> num4 >> num5 >> num6 >> num7){
                 ColorType depth_color = {num1, num2, num3};
@@ -316,8 +413,8 @@ int main(int argc, const char * argv[]){
         }
         else if (word == "light"){
             if (ss >> num1 >> num2 >> num3 >> num4 >> num5){
-                if(num4 != 1 || num4 != 0){
-                    std::cerr << "Error in depthcueing line, input 4: light type must be 0 (directional) or 1 (point)" << std::endl;
+                if(num4 != 1 && num4 != 0){
+                    std::cerr << "Error in light line, input 4: light type must be 0 (directional) or 1 (point)" << std::endl;
                 }
                 VectorType position = {num1, num2, num3}; 
                 light = {position, static_cast<int>(num4), num5};
@@ -330,7 +427,8 @@ int main(int argc, const char * argv[]){
         else if (word == "sphere") {
             if (ss >> num1 >> num2 >> num3 >> num4) {
                 //set sphere material to the index of the last material in the material array
-                SphereType sphere = {num1, num2, num3, num4, static_cast<int>(materialArray.size() - 1)};
+                VectorType center = {num1, num2, num3};
+                SphereType sphere = {center, num4, static_cast<int>(materialArray.size() - 1)};
                 sphereArray.push_back(sphere); //add spheres to the spere array
             } else {
                 std::cerr << "Error parsing sphere line: " << line << std::endl;
@@ -408,6 +506,17 @@ int main(int argc, const char * argv[]){
     VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width-1);
     
     VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height-1);
+
+    //calculate the vector L for Blinn model of the directional lights
+    for(int k = 0; k < lightArray.size(); k++){
+        if(lightArray[k].type == 0){
+            VectorType L_inv = {-vector_L.i, -vector_L.j, -vector_L.k};
+            vector_L = vectorDivide(L_inv, vectorLength(L_inv));
+            normalize(vector_L);
+            //insert this L vector into the L array at the same index the light is at in light array
+            L_array.insert(L_array.begin() + k, vector_L);
+        }
+    }
 
     //iterate through each pixel (j, i) where i = 0 to px_height-1, and j = 0 to px_width-1.
     for(int i = 0; i < px_height; i++){
