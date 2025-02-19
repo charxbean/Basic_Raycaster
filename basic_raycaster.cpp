@@ -219,6 +219,16 @@ ColorType colorAdd(ColorType c1, ColorType c2){
     return newColor;
 }
 
+//returns true if two colors are equal, false if they are not equal
+bool colorEquals(ColorType c1, ColorType c2){
+    if(c1.r == c2.r && c1.g == c2.g && c1.b == c2.b){
+        return true;
+    }
+    else{
+        return false;
+    }
+}
+
 //makes sure a color's rgb values stay between 0 and 1
 void clampColor(ColorType &c){
     if(c.r > 1){
@@ -257,6 +267,10 @@ VectorType vector_N;
 VectorType vector_L;
 VectorType vector_H;
 VectorType vector_V;
+
+int t_shaded;
+
+ColorType traceRay(Raytype ray, int self_index);
 
 //takes the index of a sphere in the sphere array and returns the material color for that sphere
 ColorType shadeRay(int sphere_index, Raytype ray, float t){
@@ -302,8 +316,36 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         ColorType specular = colorMultiply(material.Os, material.ks); //ks * Os
         float max_NH = max(0.0, dotProduct(vector_N, vector_H));
         specular = colorMultiply(specular, pow(max_NH, material.n)); //(ks * Os) * (N dot H)^n
+        //for each light, cast a ray to it and determine if it's in shadow(0) or not (1)
 
-        illumination = colorAdd(illumination, colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity));
+        int shadow_flag;
+        Raytype shadow_ray;
+        shadow_ray.origin = intersection;
+        shadow_ray.intersection = lightArray[k].position;
+        //use traceRay to send a ray from the surface to the light sourcec
+        //if traceRay returns bakcgournd color, no objects are blocking it
+
+        if(colorEquals(traceRay(shadow_ray, sphere_index), bkgcolor)){
+            shadow_flag = 1;
+        }
+        else{
+            //the distance from the sphere to the light source
+            float shade_dist = vectorLength(vectorSubtract(shadow_ray.origin, shadow_ray.intersection));
+            if(lightArray[k].type == 0){
+                shadow_flag = 0;
+            } //if t is greater than the distance from the sphere to the light source, the object doesn't block the light
+            else if(t_shaded > shade_dist){
+                shadow_flag = 1;
+            }
+            else{ //point light and the object is betweent the light and the sphere
+                shadow_flag = 0;
+            }
+        }
+
+        if(shadow_flag == 1){
+            illumination = colorAdd(illumination, colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity));
+            clampColor(illumination);
+        }
         
     }
 
@@ -311,10 +353,9 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
     return illumination;
 }
 
-
 //checks each object in the scene for a ray intersection and determines the closest valid intersection
 //either returns the color of the object it intersects or returns the background color if no object is intersected
-ColorType traceRay(Raytype ray){
+ColorType traceRay(Raytype ray, int self_index){
 
     //variables to track the closest t value and corresponding sphere/object
     float t_closest = -1;
@@ -322,6 +363,9 @@ ColorType traceRay(Raytype ray){
     
     //iterate through each object in the scene to check for ray intersections
     for(int k = 0; k < sphereArray.size(); k++){
+        if(self_index == k){    //when tracing a shadow ray, don't intersect with itself
+            k += 1;
+        }
         float xc = sphereArray[k].center.i;
         float yc = sphereArray[k].center.j;
         float zc = sphereArray[k].center.k;
@@ -367,6 +411,7 @@ ColorType traceRay(Raytype ray){
         return bkgcolor;
     }
     else{
+        t_shaded = t_closest;
         return shadeRay(sphere_index, ray, t_closest);
     }
     return bkgcolor;
@@ -579,7 +624,7 @@ int main(int argc, const char * argv[]){
             ray.intersection = intersect_point;
             normalize(ray.intersection);
             //use trace ray to find the color for each pixel
-            ColorType color = traceRay(ray);
+            ColorType color = traceRay(ray, -1);
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
         }
     }
