@@ -267,6 +267,9 @@ VectorType vector_N;
 VectorType vector_L;
 VectorType vector_H;
 VectorType vector_V;
+bool light_att = false;
+bool depth_cue = false;
+float a_dc;
 
 int t_shaded;
 
@@ -295,6 +298,8 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
             L_array.insert(L_array.begin() + k, vector_L);
         }
     }
+
+
     //Define V
     vector_V = vectorDivide(vectorSubtract(ray.origin, ray.intersection), vectorLength(vectorSubtract(ray.origin, ray.intersection)));
     normalize(vector_V);
@@ -318,23 +323,32 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         specular = colorMultiply(specular, pow(max_NH, material.n)); //(ks * Os) * (N dot H)^n
         //for each light, cast a ray to it and determine if it's in shadow(0) or not (1)
 
+        float light_dist = vectorLength(vectorSubtract(intersection, lightArray[k].position));
+        float f_att;
+
+        if(light_att == true){
+            f_att = 1/(attlight.c1 + (attlight.c2 * light_dist) + (attlight.c3* pow(light_dist, 2)));
+        }
+        else{
+            f_att = 1;
+        }
+        
+        //Shadows
         int shadow_flag;
         Raytype shadow_ray;
         shadow_ray.origin = intersection;
         shadow_ray.intersection = lightArray[k].position;
         //use traceRay to send a ray from the surface to the light sourcec
         //if traceRay returns bakcgournd color, no objects are blocking it
-
         if(colorEquals(traceRay(shadow_ray, sphere_index), bkgcolor)){
             shadow_flag = 1;
         }
         else{
             //the distance from the sphere to the light source
-            float shade_dist = vectorLength(vectorSubtract(shadow_ray.origin, shadow_ray.intersection));
             if(lightArray[k].type == 0){
                 shadow_flag = 0;
             } //if t is greater than the distance from the sphere to the light source, the object doesn't block the light
-            else if(t_shaded > shade_dist){
+            else if(t_shaded > light_dist){
                 shadow_flag = 1;
             }
             else{ //point light and the object is betweent the light and the sphere
@@ -343,10 +357,27 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         }
 
         if(shadow_flag == 1){
-            illumination = colorAdd(illumination, colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity));
+            ColorType illum_L = colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity);
+            illum_L = colorMultiply(illum_L, f_att);
+            illumination = colorAdd(illumination, illum_L);
             clampColor(illumination);
         }
-        
+
+    }
+
+    //depth cue
+    if(depth_cue == true){
+        if(t <= depth.dist_near){
+            a_dc = depth.a_max;
+        }
+        else if(t > depth.dist_far){
+            a_dc = depth.a_min;
+        }
+        else{
+            a_dc = depth.a_max - (depth.a_max - depth.a_min) * ((depth.dist_far - t)/(depth.dist_far - depth.dist_near));
+        }
+
+        illumination = colorAdd(colorMultiply(illumination, a_dc), colorMultiply(depth.depth_color, (1-a_dc)));
     }
 
     clampColor(illumination);
@@ -363,7 +394,8 @@ ColorType traceRay(Raytype ray, int self_index){
     
     //iterate through each object in the scene to check for ray intersections
     for(int k = 0; k < sphereArray.size(); k++){
-        if(self_index == k){    //when tracing a shadow ray, don't intersect with itself
+        //when tracing a shadow ray, if the sphere is itself, don't look for an intersection
+        if(self_index == k){    
             k += 1;
         }
         float xc = sphereArray[k].center.i;
@@ -486,6 +518,7 @@ int main(int argc, const char * argv[]){
                 }
                 LightType a_light = {num1, num2, num3, static_cast<int>(num4), num5};
                 attlight = {a_light, num6, num7, num8};
+                light_att = true;
             }
             else{
                 std::cerr << "Error parsing attlight line: " << line << std::endl;
@@ -495,6 +528,7 @@ int main(int argc, const char * argv[]){
             if(ss >> num1 >> num2 >> num3 >> num4 >> num5 >> num6 >> num7){
                 ColorType depth_color = {num1, num2, num3};
                 depth = {depth_color, num4, num5, num6, num7};
+                depth_cue = true;
             }
             else{
                 std::cerr << "Error parsing depthcueing line: " << line << std::endl;
@@ -599,9 +633,9 @@ int main(int argc, const char * argv[]){
     //calculate the vector L for Blinn model of the directional lights
     for(int k = 0; k < lightArray.size(); k++){
         if(lightArray[k].type == 0){
-            VectorType L_inv = {-1 * vector_L.i, -1 * vector_L.j, -1 * vector_L.k};
-            if(vector_L.i == 0 && vector_L.j == 0 && vector_L.k == 0){ //if zero vector, dont divide by 0
-                L_array.insert(L_array.begin() + k, vector_L);
+            VectorType L_inv = vectorScalar(lightArray[k].position, -1.0);
+            if(L_inv.i == 0 && L_inv.j == 0 && L_inv.k == 0){ //if zero vector, dont divide by 0
+                L_array.insert(L_array.begin() + k, lightArray[k].position);
             }
             else{
                 vector_L = vectorDivide(L_inv, vectorLength(L_inv));

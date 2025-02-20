@@ -1,0 +1,12 @@
+imsize 1920 1028
+eye 0 0 0
+viewdir 0 0 -1
+vfov 45
+updir 0 1 0
+bkgcolor 0.2 0.7 0.8
+depthcueing 0.2 0.7 0.8 .2 1 10 25
+mtlcolor 1 0 0 1 1 1 0.2 0.6 0.2 10
+light 0 -10 -10 0 1
+sphere -3 0 -8 2
+sphere 0 0 -20 2
+sphere 5 0 -30 2
