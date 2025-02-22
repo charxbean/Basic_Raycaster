@@ -89,25 +89,20 @@ std::vector<LightType> lightArray;
 std::vector<VectorType> L_array;
 
 //Returns a vector that is the cross product of vectors v1 and v2
-VectorType crossProduct(VectorType v1, VectorType v2){
-    float i = (v1.j * v2.k) - (v2.j * v1.k);
-    float j = (v2.i * v1.k) - (v1.i * v2.k);
-    float k = (v1.i * v2.j) - (v2.i * v1.j);
-    VectorType newVector;
-    newVector.i = i;
-    newVector.j = j;
-    newVector.k = k;
-
-    return newVector;
+VectorType crossProduct(const VectorType& v1, const VectorType& v2) {
+    return {
+        v1.j * v2.k - v1.k * v2.j,  // x
+        v1.k * v2.i - v1.i * v2.k,  // y
+        v1.i * v2.j - v1.j * v2.i   // z
+    };
 }
 
 //Computes the dot product of 2 vectors
-float dotProduct(VectorType v1, VectorType v2){
-    float dot = (v1.i * v2.i) + (v1.j * v2.j) + (v1.k * v2.k);
-    return dot;
+float dotProduct(const VectorType& v1, const VectorType& v2) {
+    return (v1.i * v2.i) + (v1.j * v2.j) + (v1.k * v2.k);
 }
 //returns a new vector that is the sum of vectors v1 and v2
-VectorType vectorAdd(VectorType v1, VectorType v2){
+VectorType vectorAdd(const VectorType v1, const VectorType v2){
     VectorType newVec;
     newVec.i = v1.i + v2.i;
     newVec.j = v1.j + v2.j;
@@ -117,7 +112,7 @@ VectorType vectorAdd(VectorType v1, VectorType v2){
 }
 
 //returns a new vector that is the difference of vectors v1 and v2
-VectorType vectorSubtract(VectorType v1, VectorType v2){
+VectorType vectorSubtract(const VectorType v1, const VectorType v2){
     VectorType newVec;
     newVec.i = v1.i - v2.i;
     newVec.j = v1.j - v2.j;
@@ -127,7 +122,7 @@ VectorType vectorSubtract(VectorType v1, VectorType v2){
 }
 
 //returns a new vector that is vector v1 multiplied by vector v2
-VectorType vectorMultiply(VectorType v1, VectorType v2){
+VectorType vectorMultiply(const VectorType v1, const VectorType v2){
     VectorType newVec;
     newVec.i = v1.i * v2.i;
     newVec.j = v1.j * v2.j;
@@ -137,7 +132,7 @@ VectorType vectorMultiply(VectorType v1, VectorType v2){
 }
 
 //returns a new vector that is v1 multiplied by the scalar
-VectorType vectorScalar(VectorType v1, float scalar){
+VectorType vectorScalar(const VectorType v1, const float scalar){
     VectorType newVec;
     newVec.i = v1.i * scalar;
     newVec.j = v1.j * scalar;
@@ -147,8 +142,12 @@ VectorType vectorScalar(VectorType v1, float scalar){
 }
 
 //returns a new vector that is v1 divided by the scalar
-VectorType vectorDivide(VectorType v1, float scalar){
+VectorType vectorDivide(const VectorType v1, const float scalar){
     VectorType newVec;
+    if(scalar == 0){
+        newVec = {0, 0, 0};
+        return newVec;
+    }
     newVec.i = v1.i / scalar;
     newVec.j = v1.j / scalar;
     newVec.k = v1.k / scalar;
@@ -157,17 +156,23 @@ VectorType vectorDivide(VectorType v1, float scalar){
 }
 
 //gets the length of a vector
-float vectorLength(VectorType v1){
-    float length = std::sqrt(pow(v1.i, 2) + pow(v1.j, 2) + pow(v1.k, 2));
-    return length;
+float vectorLength(const VectorType& v) {
+    return std::sqrt(v.i * v.i + v.j * v.j + v.k * v.k);
 }
 
 //normalizes the vector v1
-void normalize(VectorType& v1){
+bool normalize(VectorType& v1) {
     float length = vectorLength(v1);
-    v1.i = v1.i/length;
-    v1.j = v1.j / length;
-    v1.k = v1.k/length;
+    
+    if (length == 0.0f) {
+        // The vector is zero; normalization is not possible.
+        return false;
+    }
+
+    v1.i /= length;
+    v1.j /= length;
+    v1.k /= length;
+    return true; // Successfully normalized
 }
 
 //finds and returns the closest positive t value beteween t1 and t2, returns -1 if both are invalid
@@ -338,6 +343,7 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         Raytype shadow_ray;
         shadow_ray.origin = intersection;
         shadow_ray.intersection = lightArray[k].position;
+        normalize(shadow_ray.intersection);
         //use traceRay to send a ray from the surface to the light sourcec
         //if traceRay returns bakcgournd color, no objects are blocking it
         if(colorEquals(traceRay(shadow_ray, sphere_index), bkgcolor)){
@@ -384,6 +390,13 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
     return illumination;
 }
 
+ColorType old_ShadeRay(int sphere_index){
+    SphereType sphere = sphereArray[sphere_index];
+    MaterialColor material = materialArray[sphere.m];
+    ColorType m_color = material.Od;
+    return m_color;
+}
+
 //checks each object in the scene for a ray intersection and determines the closest valid intersection
 //either returns the color of the object it intersects or returns the background color if no object is intersected
 ColorType traceRay(Raytype ray, int self_index){
@@ -403,12 +416,13 @@ ColorType traceRay(Raytype ray, int self_index){
         float zc = sphereArray[k].center.k;
         float r = sphereArray[k].r;
         
+        
         //calculate A, B and C for each sphere
-        float A = pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
+        float A = 1.0;//pow(ray.intersection.i, 2) + pow(ray.intersection.j, 2) + pow(ray.intersection.k, 2);
         float B = 2*(ray.intersection.i*(ray.origin.i - xc) + ray.intersection.j * (ray.origin.j - yc) + ray.intersection.k*(ray.origin.k - zc));
         float C = pow((ray.origin.i - xc), 2) + pow((ray.origin.j - yc), 2) + pow((ray.origin.k - zc), 2) - pow(r, 2);
         
-
+        //std::cout << ray.intersection.i << " " << ray.intersection.j << " " << ray.intersection.k << std::endl;
         //calculate the determinant
         float determinant = (pow(B, 2) - 4*A*C);
         
@@ -602,7 +616,8 @@ int main(int argc, const char * argv[]){
     //calculate the width and height in 3d world coordinates
     float radian_vfov = (vfov * M_PI)/180;
     int height = (2*d*std::tan(0.5 * radian_vfov));
-    int width = (px_width / px_height) * height;
+    float aspect = (float)px_width / (float)px_height;
+    int width = aspect * height;
 
     //Find the 4 corners of the viewing window
     VectorType ul;
@@ -656,7 +671,10 @@ int main(int argc, const char * argv[]){
             Raytype ray;
             ray.origin = eye;
             ray.intersection = intersect_point;
-            normalize(ray.intersection);
+            if(!normalize(ray.intersection)){
+                std::cerr << "Unable to normalize" << std::endl;
+            }
+    
             //use trace ray to find the color for each pixel
             ColorType color = traceRay(ray, -1);
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
