@@ -66,6 +66,12 @@ typedef struct{
     float c1, c2, c3;
 }AttlightType;
 
+typedef struct{
+    int sphere_index;
+    Raytype ray;
+    float t;
+}Intersection;
+
 //initialize variables for the input
 VectorType eye;
 VectorType viewdir;
@@ -276,12 +282,19 @@ bool light_att = false;
 bool depth_cue = false;
 float a_dc;
 
-int t_shaded;
+float t_shaded;
 
-ColorType traceRay(Raytype ray, int self_index);
+bool tracing_shadow = false;
+
+Intersection traceRay(Raytype ray, int self_index);
 
 //takes the index of a sphere in the sphere array and returns the material color for that sphere
 ColorType shadeRay(int sphere_index, Raytype ray, float t){
+    
+    if(t < 0){
+        return bkgcolor;
+    }
+
     int mat_index = sphereArray[sphere_index].m;
     MaterialColor material = materialArray[mat_index];
     SphereType sphere = sphereArray[sphere_index];
@@ -328,7 +341,7 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         specular = colorMultiply(specular, pow(max_NH, material.n)); //(ks * Os) * (N dot H)^n
         //for each light, cast a ray to it and determine if it's in shadow(0) or not (1)
 
-        float light_dist = vectorLength(vectorSubtract(intersection, lightArray[k].position));
+        float light_dist = vectorLength(vectorSubtract(lightArray[k].position, intersection));
         float f_att;
 
         if(light_att == true){
@@ -342,25 +355,37 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         int shadow_flag;
         Raytype shadow_ray;
         shadow_ray.origin = intersection;
-        shadow_ray.intersection = lightArray[k].position;
+        shadow_ray.intersection = vectorSubtract(lightArray[k].position, shadow_ray.origin);
         normalize(shadow_ray.intersection);
+        //printVector(shadow_ray.intersection);
+        //printVector(shadow_ray.origin);
+        //normalize(shadow_ray.intersection);
         //use traceRay to send a ray from the surface to the light sourcec
         //if traceRay returns bakcgournd color, no objects are blocking it
-        if(colorEquals(traceRay(shadow_ray, sphere_index), bkgcolor)){
+        tracing_shadow = true;
+        Intersection trace_ray = traceRay(shadow_ray, sphere_index);
+        if(trace_ray.t < 0){
             shadow_flag = 1;
         }
         else{
+
+            //the point where the shadow ray hit an object on its path to the light source
+            //VectorType blocking_point = vectorAdd(shadow_ray.origin, vectorScalar(shadow_ray.intersection, trace_ray.t));
+            float blocking_dist = trace_ray.t;
+            //std::cout << t_shaded << std::endl;
             //the distance from the sphere to the light source
             if(lightArray[k].type == 0){
                 shadow_flag = 0;
             } //if t is greater than the distance from the sphere to the light source, the object doesn't block the light
-            else if(t_shaded > light_dist){
+            else if(blocking_dist > light_dist){
                 shadow_flag = 1;
             }
             else{ //point light and the object is betweent the light and the sphere
                 shadow_flag = 0;
             }
         }
+
+        tracing_shadow = false;
 
         if(shadow_flag == 1){
             ColorType illum_L = colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity);
@@ -399,17 +424,17 @@ ColorType old_ShadeRay(int sphere_index){
 
 //checks each object in the scene for a ray intersection and determines the closest valid intersection
 //either returns the color of the object it intersects or returns the background color if no object is intersected
-ColorType traceRay(Raytype ray, int self_index){
+Intersection traceRay(Raytype ray, int self_index){
 
     //variables to track the closest t value and corresponding sphere/object
     float t_closest = -1;
-    int sphere_index;
+    int sphere_index = -1;
     
     //iterate through each object in the scene to check for ray intersections
     for(int k = 0; k < sphereArray.size(); k++){
         //when tracing a shadow ray, if the sphere is itself, don't look for an intersection
         if(self_index == k){    
-            k += 1;
+            continue;
         }
         float xc = sphereArray[k].center.i;
         float yc = sphereArray[k].center.j;
@@ -439,7 +464,7 @@ ColorType traceRay(Raytype ray, int self_index){
             
         } //if the determinant is 0 then calculate the t value of this object
         else if(determinant == 0){
-            float t = (-B + (std::sqrt(determinant)))/(2.0*A);
+            float t = (-B /(2.0*A));
             t_closest = find_t(t, t_closest); //keep track of the closest positive t of all objects
             if(t_closest == t){
                 sphere_index = k; //keep track of the sphere index corresponding to the closest t value
@@ -448,19 +473,10 @@ ColorType traceRay(Raytype ray, int self_index){
         else{ //if no valid t value is found, t = -1
             float t = -1;
         }
-        
     }
 
-    //after iterating through every object, use the closest t value to determine the pixel color
-    //if no valid t value was found, set the pixel to the background color
-    if(t_closest == -1){
-        return bkgcolor;
-    }
-    else{
-        t_shaded = t_closest;
-        return shadeRay(sphere_index, ray, t_closest);
-    }
-    return bkgcolor;
+    Intersection traceRay_intersection = {sphere_index, ray, t_closest};
+    return traceRay_intersection;
 }
 
 //Main function
@@ -676,7 +692,9 @@ int main(int argc, const char * argv[]){
             }
     
             //use trace ray to find the color for each pixel
-            ColorType color = traceRay(ray, -1);
+            Intersection trace_ray = traceRay(ray, -1);
+            ColorType color = shadeRay(trace_ray.sphere_index, trace_ray.ray, trace_ray.t);  
+            
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
         }
     }
