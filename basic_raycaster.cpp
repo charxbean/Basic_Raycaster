@@ -67,9 +67,10 @@ typedef struct{
     int a, b, c;
 }Triangle;
 
-//return type of the trace_ray function
+//return type of the trace_ray and trace_polygon functions
 typedef struct{
-    int sphere_index; //intersected sphere
+    int shape_index; //index of the intersected object in it's object array
+    int shape; //shape type, 0 for sphere, 1 for triangle
     Raytype ray; //ray that intersects with the sphere
     float t; //the t value of the intersection
 }Intersection;
@@ -97,6 +98,7 @@ typedef struct{
 ValidInput valid_input;
 //boolean to check if other inputs were given
 bool sphere_ = false;
+bool triangle_ = false;
 bool material_ = false;
 bool depth_cue = false;
 
@@ -322,31 +324,52 @@ VectorType vector_L;
 VectorType vector_H;
 VectorType vector_V;
 
-//initialize traceRay so it can be used inside ShadeRay
+//initialize traceRay and tracePolygon so they can be used inside ShadeRay
 Intersection traceRay(Raytype ray, int self_index);
+Intersection tracePolygon(Raytype ray, int self_index);
 
 //shadeRay function takes the index of a sphere in the sphere array, the ray that intersected it, and the t value from the intersection
 //returns the color for that pixel computed using the Blinn-Phong method
-ColorType shadeRay(int sphere_index, Raytype ray, float t){
+ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     
     //if t < 0 then no object intersection was found, return the background color
     if(t < 0){
         return bkgcolor;
     }
 
-    //find the material that corresponds with the given sphere
-    int mat_index = sphereArray[sphere_index].m;
-    MaterialColor material = materialArray[mat_index];
-    SphereType sphere = sphereArray[sphere_index];
+    //initialize material color
+    MaterialColor material;
 
-    //the intersection point of the sphere from the eye
+    //the intersection point of the object from the eye
     VectorType intersection = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
 
-    //Calculate illumination 
-    //calculate vector N
-    vector_N = vectorDivide(vectorSubtract(intersection, sphere.center), sphere.r);
-    normalize(vector_N);
+    if(shape == 0){ //the shape is a sphere
+        //find the material that corresponds with the given sphere
+        int mat_index = sphereArray[shape_index].m;
+        material = materialArray[mat_index];
+        SphereType sphere = sphereArray[shape_index];
 
+        //calculate normal vector N
+        vector_N = vectorDivide(vectorSubtract(intersection, sphere.center), sphere.r);
+        normalize(vector_N);
+    }
+    else if(shape == 1){ //the shape is a triangle
+        //material color for flat shading??
+        material = materialArray[0];
+        //calculate the normal of the triangle(FLAT SHADING)
+        Triangle triangle = triangle_array[shape_index];
+        VectorType e1 = vectorSubtract(vertex_array[triangle_array[shape_index].b], vertex_array[triangle_array[shape_index].a]);
+        VectorType e2 = vectorSubtract(vertex_array[triangle_array[shape_index].c], vertex_array[triangle_array[shape_index].a]);
+
+        vector_N = crossProduct(e1, e2);
+    }
+    else{
+        std::cerr << "Attempting to shade an undefined shape" << std::endl;
+        return bkgcolor;
+    }
+    
+    //Calculate illumination 
+    
     //calculate vector L for each point light source
     for(int k = 0; k < lightArray.size(); k++){
         if(lightArray[k].type == 1){
@@ -394,8 +417,20 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
         shadow_ray.intersection = vectorSubtract(lightArray[k].position, shadow_ray.origin); //light position from the sphere surface
         normalize(shadow_ray.intersection);
         
-        //use traceRay to send a ray from the surface to the light source
-        Intersection trace_ray = traceRay(shadow_ray, sphere_index);
+        //send a ray from the surface of the object to the light source
+        Intersection trace_ray;
+        if(shape == 0){ //use trace_ray if the object is a sphere
+            trace_ray = traceRay(shadow_ray, shape_index);
+        }
+        else if(shape == 1){ //use trace_polygon if the object is a triangle
+            trace_ray = tracePolygon(shadow_ray, shape_index);
+        }
+        else{
+            std::cerr << "Attempting to trace undefined shape" << std::endl;
+            trace_ray = {-1, 0, shadow_ray, -1};
+        }
+
+        //use the t value from trace_ray to determine if there is a shadow or not
         if(trace_ray.t < 0){
             shadow_flag = 1; //no intersection found, no shadow
         }
@@ -441,8 +476,8 @@ ColorType shadeRay(int sphere_index, Raytype ray, float t){
     return illumination;
 }
 
-ColorType oldShadeRay(int sphere_index, int t){
-    //std::cout << sphere_index << " " << t << std::endl;
+ColorType oldShadeRay(int shape_index, int shape, Raytype ray, float t){
+
     if(t < 0){
         return bkgcolor;
     }
@@ -453,6 +488,8 @@ ColorType oldShadeRay(int sphere_index, int t){
         return color;
     }
 }
+
+ColorType easyShadePolygon(int shape_index, int shape, )
 
 //checks each sphere in the scene for a ray intersection and determines the closest valid intersection
 //skips the input self index if it's a valid index number
@@ -506,14 +543,14 @@ Intersection traceRay(Raytype ray, int self_index){
         }
     }
 
-    Intersection traceRay_intersection = {sphere_index, ray, t_closest};
+    Intersection traceRay_intersection = {sphere_index, 0, ray, t_closest};
     return traceRay_intersection;
 }
 
 //checks each triangle in the sccene for a ray intersection
 
 //goes through each triangle in the triangle array
-Intersection trace_polygon(Raytype ray){
+Intersection tracePolygon(Raytype ray, int self_index){
     //p0, p1 and p2 are a b and c of the traingle type
     //define e1, e2 and n
     float t_closest = -1;
@@ -528,6 +565,10 @@ Intersection trace_polygon(Raytype ray){
     VectorType e2;
 
     for(int k = 0; k < triangle_array.size(); k++){
+        if(self_index == k){
+            continue;
+        }
+
         //Define p0, p1 and p2 of the triangle
         p0 = vertex_array[triangle_array[k].a];
         p1 = vertex_array[triangle_array[k].b];
@@ -562,11 +603,10 @@ Intersection trace_polygon(Raytype ray){
 
     //if the ray didn't intersect with any plane, end here
     if(t_closest == -1){
-        return {-1, ray, -1};
+        return {-1, 1, ray, -1};
     }
 
     //if there was an intersection, check if it intersects inside the triangle
-    //MODIFY SO YOU HAVE THE RIGHT P0, E1 and E2!!!!
     p0 = vertex_array[triangle_array[triangle_index].a];
     p1 = vertex_array[triangle_array[triangle_index].b];
     p2 = vertex_array[triangle_array[triangle_index].c];
@@ -584,7 +624,7 @@ Intersection trace_polygon(Raytype ray){
     
     float determinant = ((d11 * d22) - (d12*d12));
     if(determinant == 0){
-        return {-1, ray, -1};
+        return {-1, 1, ray, -1};
         std::cerr << "erm" << std::endl;
     }
     else{
@@ -593,16 +633,16 @@ Intersection trace_polygon(Raytype ray){
         float alpha = 1 - (beta + gamma);
         //intersection with plane was found AND ray is inside triangle
         if(inside_triangle(beta, gamma, alpha)){
-            Intersection polygon_intersection = {triangle_index, ray, t_closest};
+            Intersection polygon_intersection = {triangle_index, 1, ray, t_closest};
             return polygon_intersection;
         }
         else{
             //no intersection with triangle, t and index are -1
-            return {-1, ray, -1};
+            return {-1, 1, ray, -1};
         }
     }
 
-    return {-1, ray, -1};
+    return {-1, 1, ray, -1};
 }
 
 //Main function
@@ -728,6 +768,7 @@ int main(int argc, const char * argv[]){
                 if(word == "f"){ //make sure first triangle index starts at 1, not 0??
                     Triangle f = {static_cast<int>(num1), static_cast<int>(num2), static_cast<int>(num3)};
                     triangle_array.push_back(f);
+                    triangle_ = true;
                 }
             } else {
                 std::cerr << "Error parsing " << word << " line: " << line << std::endl;
@@ -770,16 +811,13 @@ int main(int argc, const char * argv[]){
         return -1;
     }
 
-    printVector(vertex_array[3]);
-    std::cout << triangle_array[3].a << std::endl;
-
     //create the header for the ppm file
     fout << "P3\n";
     fout << px_width << " # image width\n" << px_height << " # image height\n";
     fout << "255\n";
 
     //if there is no input object, just return the background color
-    if(!sphere_){
+    if(!sphere_ && !triangle_){
         for(int i = 0; i < px_height; i++){
             for(int j = 0; j < px_width; j++){
                 fout << std::round(bkgcolor.r * 255) << " " << std::round(bkgcolor.g * 255) << " " << std::round(bkgcolor.b * 255) << std::endl;
@@ -787,8 +825,8 @@ int main(int argc, const char * argv[]){
         }
         inputFile.close();
         return 0;
-    }//check that if there is a sphere, there is also a material color
-    else if(sphere_ && !material_){
+    }//check that if there is an object, there is also a material color
+    else if((sphere_ || triangle_) && !material_){
         std::cerr << "a sphere was input without a material color" << std::endl;
         inputFile.close();
         return -1;
@@ -863,9 +901,21 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Unable to normalize" << std::endl;
             }
     
-            //use trace_ray and shade ray to determine the color for each pixel
+            //use trace_ray and trace_polygon to look for object intersections
             Intersection trace_ray = traceRay(ray, -1);
-            ColorType color = shadeRay(trace_ray.sphere_index, trace_ray.ray, trace_ray.t);  
+            Intersection trace_polygon = tracePolygon(ray, -1);
+
+            //determine whether a sphere or polygon was intersected closest to the eye
+            float t_shape = find_t(trace_polygon.t, trace_ray.t);
+
+            //use shadeRay to determine the pixel color based on which object was intersected first
+            ColorType color;
+            if(t_shape == trace_ray.t){
+                color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
+            }
+            else if(t_shape = trace_polygon.t){
+                color = shadeRay(trace_polygon.shape_index, trace_polygon.shape, trace_polygon.ray, trace_polygon.t);  
+            }
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
             
         }
