@@ -340,7 +340,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     //initialize material color
     MaterialColor material;
 
-    //the intersection point of the object from the eye
+    //the intersection point of the surface from the eye
     VectorType intersection = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
 
     if(shape == 0){ //the shape is a sphere
@@ -448,6 +448,8 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
             }
         }
 
+        //ONLY WHILE TESTING:
+        shadow_flag = 1;
         //if there is no shadow, add the illumination from this light source to the total
         if(shadow_flag == 1){
             ColorType illum_L = colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity);
@@ -476,7 +478,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     return illumination;
 }
 
-ColorType oldShadeRay(int shape_index, int shape, Raytype ray, float t){
+ColorType oldShadeRay(int sphere_index, int t){
 
     if(t < 0){
         return bkgcolor;
@@ -489,7 +491,19 @@ ColorType oldShadeRay(int shape_index, int shape, Raytype ray, float t){
     }
 }
 
-ColorType easyShadePolygon(int shape_index, int shape, )
+ColorType easyShadePolygon(int triangle_index, int t){
+
+    if(t < 0){
+        return bkgcolor;
+    }
+    else{
+        MaterialColor material = materialArray[0];
+        ColorType color = material.Od;
+        return color;
+    }
+}
+
+
 
 //checks each sphere in the scene for a ray intersection and determines the closest valid intersection
 //skips the input self index if it's a valid index number
@@ -568,24 +582,25 @@ Intersection tracePolygon(Raytype ray, int self_index){
         if(self_index == k){
             continue;
         }
-
         //Define p0, p1 and p2 of the triangle
-        p0 = vertex_array[triangle_array[k].a];
-        p1 = vertex_array[triangle_array[k].b];
-        p2 = vertex_array[triangle_array[k].c];
+        p0 = vertex_array[(triangle_array[k].a)-1];
+        p1 = vertex_array[(triangle_array[k].b)-1];
+        p2 = vertex_array[(triangle_array[k].c)-1];
 
         e1 = vectorSubtract(p1, p0);
+        //printVector(e1);
         e2 = vectorSubtract(p2, p0);
 
         //Define vector n
         VectorType n = crossProduct(e1, e2);
+        //printVector(n);
 
         //Define A, B, C and D
         float A = n.i;
         float B = n.j;
         float C = n.k;
         float D = -1 * ((A*p0.i) + (B*p0.j) + (C*p0.k));
-
+        
         //find the denominator of the possible ray intersection
         //xd, yx and zd = ray intersection
         float denominator = (A*ray.intersection.i) + (B*ray.intersection.j) + (C * ray.intersection.k);
@@ -909,6 +924,7 @@ int main(int argc, const char * argv[]){
             float t_shape = find_t(trace_polygon.t, trace_ray.t);
 
             //use shadeRay to determine the pixel color based on which object was intersected first
+            /*
             ColorType color;
             if(t_shape == trace_ray.t){
                 color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
@@ -917,7 +933,24 @@ int main(int argc, const char * argv[]){
                 color = shadeRay(trace_polygon.shape_index, trace_polygon.shape, trace_polygon.ray, trace_polygon.t);  
             }
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
-            
+            */
+
+            //FOR TESTING
+            Raytype test_ray;
+            test_ray.origin = VectorType {0, 0, 0};
+            test_ray.intersection = VectorType {1/3.0, 2/3.0, 2/3.0};
+            Intersection test_polygon = tracePolygon(test_ray, -1);
+            //std::cout << test_polygon.t << std::endl;
+
+            ColorType color;
+            if(t_shape == trace_ray.t){
+                color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
+            }
+            else if(t_shape = trace_polygon.t){
+                color = easyShadePolygon(trace_polygon.shape_index, trace_polygon.t);
+            }
+            fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
+
         }
     }
 
