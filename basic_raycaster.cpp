@@ -63,6 +63,10 @@ typedef struct{
     float a_min, a_max, dist_near, dist_far;
 }DepthCue;
 
+typedef struct{
+    int a, b, c;
+}Triangle;
+
 //return type of the trace_ray function
 typedef struct{
     int sphere_index; //intersected sphere
@@ -111,6 +115,13 @@ std::vector<LightType> lightArray;
 //array of L vectors that corresponds to each light in the light array
 std::vector<VectorType> L_array;
 
+//array of input vertices
+std::vector<VectorType> vertex_array;
+
+//array of triangles
+std::vector<Triangle> triangle_array;
+
+
 //Returns a vector that is the cross product of vectors v1 and v2
 VectorType crossProduct(const VectorType& v1, const VectorType& v2) {
     return {
@@ -121,8 +132,9 @@ VectorType crossProduct(const VectorType& v1, const VectorType& v2) {
 }
 
 //Computes the dot product of 2 vectors
-float dotProduct(const VectorType& v1, const VectorType& v2) {
-    return (v1.i * v2.i) + (v1.j * v2.j) + (v1.k * v2.k);
+float dotProduct(const VectorType v1, const VectorType v2) {
+    float dot = (v1.i * v2.i) + (v1.j * v2.j) + (v1.k * v2.k);
+    return dot;
 }
 
 //returns a new vector that is the sum of vectors v1 and v2
@@ -218,6 +230,18 @@ float find_t(float t1, float t2){
     }else{
         return -1;
     }
+}
+
+bool inside_triangle(float b, float g, float a){
+    if((a >= 0 && a <= 1) && (b >= 0 && b <= 1) && (g >= 0 && g <= 1)){
+        if(a + b + g == 1){
+            return true;
+        }
+        else{
+            return false;
+        }
+    }
+    return false;
 }
 
 //returns the max of 2 float values
@@ -430,7 +454,7 @@ ColorType oldShadeRay(int sphere_index, int t){
     }
 }
 
-//checks each object in the scene for a ray intersection and determines the closest valid intersection
+//checks each sphere in the scene for a ray intersection and determines the closest valid intersection
 //skips the input self index if it's a valid index number
 //returns a struct containting the closest t-value, the intersected sphere index and the ray
 Intersection traceRay(Raytype ray, int self_index){
@@ -484,6 +508,101 @@ Intersection traceRay(Raytype ray, int self_index){
 
     Intersection traceRay_intersection = {sphere_index, ray, t_closest};
     return traceRay_intersection;
+}
+
+//checks each triangle in the sccene for a ray intersection
+
+//goes through each triangle in the triangle array
+Intersection trace_polygon(Raytype ray){
+    //p0, p1 and p2 are a b and c of the traingle type
+    //define e1, e2 and n
+    float t_closest = -1;
+    int triangle_index = -1;
+
+    //n = p1 - p0 X p2 - p0
+    VectorType p0;
+    VectorType p1;
+    VectorType p2;
+
+    VectorType e1;
+    VectorType e2;
+
+    for(int k = 0; k < triangle_array.size(); k++){
+        //Define p0, p1 and p2 of the triangle
+        p0 = vertex_array[triangle_array[k].a];
+        p1 = vertex_array[triangle_array[k].b];
+        p2 = vertex_array[triangle_array[k].c];
+
+        e1 = vectorSubtract(p1, p0);
+        e2 = vectorSubtract(p2, p0);
+
+        //Define vector n
+        VectorType n = crossProduct(e1, e2);
+
+        //Define A, B, C and D
+        float A = n.i;
+        float B = n.j;
+        float C = n.k;
+        float D = -1 * ((A*p0.i) + (B*p0.j) + (C*p0.k));
+
+        //find the denominator of the possible ray intersection
+        //xd, yx and zd = ray intersection
+        float denominator = (A*ray.intersection.i) + (B*ray.intersection.j) + (C * ray.intersection.k);
+        if(denominator == 0){
+            float t = -1;
+        }
+        else{
+            float t = (-1 * (A * ray.origin.i + B*ray.origin.j + C*ray.origin.k))/denominator;
+            t_closest = find_t(t, t_closest);
+            if(t_closest == t){
+                triangle_index = k;
+            }
+        }
+    }
+
+    //if the ray didn't intersect with any plane, end here
+    if(t_closest == -1){
+        return {-1, ray, -1};
+    }
+
+    //if there was an intersection, check if it intersects inside the triangle
+    //MODIFY SO YOU HAVE THE RIGHT P0, E1 and E2!!!!
+    p0 = vertex_array[triangle_array[triangle_index].a];
+    p1 = vertex_array[triangle_array[triangle_index].b];
+    p2 = vertex_array[triangle_array[triangle_index].c];
+    e1 = vectorSubtract(p1, p0);
+    e2 = vectorSubtract(p2, p0);
+
+    VectorType p = {(ray.origin.i + (t_closest * ray.intersection.i)), (ray.origin.j + (t_closest * ray.intersection.j)), (ray.origin.k + (t_closest * ray.intersection.k))};
+    VectorType ep = vectorSubtract(p, p0);
+
+    float d11 = dotProduct(e1, e1);
+    float d22 = dotProduct(e2, e2);
+    float d12 = dotProduct(e1, e2);
+    float d1p = dotProduct(e1, ep);
+    float d2p = dotProduct(e2, ep);
+    
+    float determinant = ((d11 * d22) - (d12*d12));
+    if(determinant == 0){
+        return {-1, ray, -1};
+        std::cerr << "erm" << std::endl;
+    }
+    else{
+        float beta = (d11*d1p - d12 * d2p)/determinant;
+        float gamma = (d11 * d2p - d12 * d1p)/determinant;
+        float alpha = 1 - (beta + gamma);
+        //intersection with plane was found AND ray is inside triangle
+        if(inside_triangle(beta, gamma, alpha)){
+            Intersection polygon_intersection = {triangle_index, ray, t_closest};
+            return polygon_intersection;
+        }
+        else{
+            //no intersection with triangle, t and index are -1
+            return {-1, ray, -1};
+        }
+    }
+
+    return {-1, ray, -1};
 }
 
 //Main function
@@ -584,7 +703,7 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Error parsing sphere line: " << line << std::endl;
             }
         }
-        else if (word == "eye" || word == "viewdir" || word == "updir" || word == "bkgcolor") {
+        else if (word == "eye" || word == "viewdir" || word == "updir" || word == "bkgcolor" || word == "v" || word == "f") {
             if (ss >> num1 >> num2 >> num3) {
                 if (word == "eye"){
                     eye = {num1, num2, num3};
@@ -601,7 +720,15 @@ int main(int argc, const char * argv[]){
                 if (word == "bkgcolor"){
                     bkgcolor = {num1, num2, num3};
                     valid_input.bkgcolor_ = true;
-                }    
+                }
+                if(word == "v"){ 
+                    VectorType v = {num1, num2, num3};
+                    vertex_array.push_back(v);
+                }
+                if(word == "f"){ //make sure first triangle index starts at 1, not 0??
+                    Triangle f = {static_cast<int>(num1), static_cast<int>(num2), static_cast<int>(num3)};
+                    triangle_array.push_back(f);
+                }
             } else {
                 std::cerr << "Error parsing " << word << " line: " << line << std::endl;
             }
@@ -642,6 +769,9 @@ int main(int argc, const char * argv[]){
         std::cerr << "Error: imsize width and height were not properly input" << std::endl;
         return -1;
     }
+
+    printVector(vertex_array[3]);
+    std::cout << triangle_array[3].a << std::endl;
 
     //create the header for the ppm file
     fout << "P3\n";
