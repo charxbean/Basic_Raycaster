@@ -7,6 +7,10 @@
 #include <cctype>
 #include <algorithm>
 
+
+//epsilon definition
+float epsilon = 1e-9;
+
 //vector type
 typedef struct{
     float i, j, k;
@@ -235,6 +239,19 @@ float find_t(float t1, float t2){
 }
 
 bool inside_triangle(float b, float g, float a){
+
+    if((a + b + g > .9) && (a + b + g < 1.09)){
+        if((a >= 0 && a <= 1) && (b >= 0 && b <= 1) && (g >= 0 && g <= 1)){
+            return true;
+        }
+        else{
+            return false;
+        }
+    }
+    else{
+        return false;
+    }
+    /*
     if((a >= 0 && a <= 1) && (b >= 0 && b <= 1) && (g >= 0 && g <= 1)){
         if(a + b + g == 1){
             return true;
@@ -244,6 +261,7 @@ bool inside_triangle(float b, float g, float a){
         }
     }
     return false;
+    */
 }
 
 //returns the max of 2 float values
@@ -493,7 +511,7 @@ ColorType oldShadeRay(int sphere_index, int t){
 
 ColorType easyShadePolygon(int triangle_index, int t){
 
-    if(t < 0){
+    if(t == -1){
         return bkgcolor;
     }
     else{
@@ -600,10 +618,13 @@ Intersection tracePolygon(Raytype ray, int self_index){
         float B = n.j;
         float C = n.k;
         float D = -1 * ((A*p0.i) + (B*p0.j) + (C*p0.k));
+       // printVector(n);
+        //printVector(ray.origin);
         
         //find the denominator of the possible ray intersection
         //xd, yx and zd = ray intersection
         float denominator = (A*ray.intersection.i) + (B*ray.intersection.j) + (C * ray.intersection.k);
+
         if(denominator == 0){
             float t = -1;
         }
@@ -646,17 +667,21 @@ Intersection tracePolygon(Raytype ray, int self_index){
         float beta = (d11*d1p - d12 * d2p)/determinant;
         float gamma = (d11 * d2p - d12 * d1p)/determinant;
         float alpha = 1 - (beta + gamma);
+
+       
         //intersection with plane was found AND ray is inside triangle
         if(inside_triangle(beta, gamma, alpha)){
+            
             Intersection polygon_intersection = {triangle_index, 1, ray, t_closest};
+
             return polygon_intersection;
         }
         else{
             //no intersection with triangle, t and index are -1
             return {-1, 1, ray, -1};
+            
         }
     }
-
     return {-1, 1, ray, -1};
 }
 
@@ -904,6 +929,10 @@ int main(int argc, const char * argv[]){
     //iterate through each pixel (j, i) where i = 0 to px_height-1, and j = 0 to px_width-1.
     for(int i = 0; i < px_height; i++){
         for(int j = 0; j < px_width; j++){
+            if(i == 3 && j == 28){
+                printf("LOOK HERE!!!!!");
+            }
+            
 
             //the point where each ray should pass through the viewing window correspoindng to each pixel
             VectorType intersect_point = vectorAdd(vectorAdd(ul, vectorScalar(h_change, j)), vectorScalar(v_change, i));
@@ -915,7 +944,7 @@ int main(int argc, const char * argv[]){
             if(!normalize(ray.intersection)){
                 std::cerr << "Unable to normalize" << std::endl;
             }
-    
+            
             //use trace_ray and trace_polygon to look for object intersections
             Intersection trace_ray = traceRay(ray, -1);
             Intersection trace_polygon = tracePolygon(ray, -1);
@@ -930,27 +959,19 @@ int main(int argc, const char * argv[]){
                 color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
             }
             else if(t_shape = trace_polygon.t){
-                color = shadeRay(trace_polygon.shape_index, trace_polygon.shape, trace_polygon.ray, trace_polygon.t);  
+                color = easyShadePolygon(trace_polygon.shape_index, trace_polygon.t);
             }
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
             */
-
-            //FOR TESTING
-            Raytype test_ray;
-            test_ray.origin = VectorType {0, 0, 0};
-            test_ray.intersection = VectorType {1/3.0, 2/3.0, 2/3.0};
-            Intersection test_polygon = tracePolygon(test_ray, -1);
-            //std::cout << test_polygon.t << std::endl;
 
             ColorType color;
             if(t_shape == trace_ray.t){
                 color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
             }
             else if(t_shape = trace_polygon.t){
-                color = easyShadePolygon(trace_polygon.shape_index, trace_polygon.t);
+                color = shadeRay(trace_polygon.shape_index, trace_polygon.shape, trace_polygon.ray, trace_polygon.t);  
             }
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
-
         }
     }
 
