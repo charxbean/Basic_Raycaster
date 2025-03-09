@@ -7,10 +7,6 @@
 #include <cctype>
 #include <algorithm>
 
-
-//epsilon definition
-float epsilon = 1e-9;
-
 //vector type
 typedef struct{
     float i, j, k;
@@ -69,6 +65,8 @@ typedef struct{
 
 typedef struct{
     int a, b, c;
+    int n1, n2, n3;
+    int t1, t2, t3;
 }Triangle;
 
 //return type of the trace_ray and trace_polygon functions
@@ -126,6 +124,9 @@ std::vector<VectorType> vertex_array;
 
 //array of triangles
 std::vector<Triangle> triangle_array;
+
+//array of normal vectors
+std::vector<VectorType> normal_array;
 
 
 //Returns a vector that is the cross product of vectors v1 and v2
@@ -238,10 +239,12 @@ float find_t(float t1, float t2){
     }
 }
 
+//Check the input barycentric coordinates to determine if they meet the conditions for being inside a triangle
+//if conditions are met, return true, otherwise return false
 bool inside_triangle(float b, float g, float a){
 
     if((a + b + g > .9) && (a + b + g < 1.09)){
-        if((a >= 0 && a <= 1) && (b >= 0 && b <= 1) && (g >= 0 && g <= 1)){
+        if((a > 0 && a < 1) && (b > 0 && b < 1) && (g > 0 && g < 1)){
             return true;
         }
         else{
@@ -251,17 +254,6 @@ bool inside_triangle(float b, float g, float a){
     else{
         return false;
     }
-    /*
-    if((a >= 0 && a <= 1) && (b >= 0 && b <= 1) && (g >= 0 && g <= 1)){
-        if(a + b + g == 1){
-            return true;
-        }
-        else{
-            return false;
-        }
-    }
-    return false;
-    */
 }
 
 //returns the max of 2 float values
@@ -342,6 +334,47 @@ VectorType vector_L;
 VectorType vector_H;
 VectorType vector_V;
 
+VectorType interpolate_t_normal(int triangle_index, Raytype ray, float t){
+    if(triangle_array[triangle_index].n1 == -1){
+        return {-1, -1, -1};
+        std::cerr << "Trying to interpolate normals, but the triangle has no input normal values" << std::endl;
+    }
+    VectorType interpolated_n;
+    VectorType p0 = vertex_array[(triangle_array[triangle_index].a)-1];
+    //printVector(p0);
+    VectorType p1 = vertex_array[(triangle_array[triangle_index].b)-1];
+    VectorType p2 = vertex_array[(triangle_array[triangle_index].c)-1];
+
+    VectorType e1 = vectorSubtract(p1, p0);
+    VectorType e2 = vectorSubtract(p2, p0);
+
+    VectorType p = {(ray.origin.i + (t * ray.intersection.i)), (ray.origin.j + (t * ray.intersection.j)), (ray.origin.k + (t * ray.intersection.k))};
+    VectorType ep = vectorSubtract(p, p0);
+
+    float d11 = dotProduct(e1, e1);
+    float d22 = dotProduct(e2, e2);
+    float d12 = dotProduct(e1, e2);
+    float d1p = dotProduct(e1, ep);
+    float d2p = dotProduct(e2, ep);
+    
+    float determinant = ((d11 * d22) - (d12*d12));
+    if(determinant == 0){
+        return {-1, -1, -1};
+        std::cerr << "erm" << std::endl;
+    }
+    else{
+        float beta = (d22*d1p - d12*d2p)/determinant;
+        float gamma = (d11 * d2p - d12 * d1p)/determinant;
+        float alpha = 1 - (beta + gamma);
+        VectorType n0 = normal_array[(triangle_array[triangle_index].n1) -1];
+        VectorType n1 = normal_array[(triangle_array[triangle_index].n2) -1];
+        VectorType n2 = normal_array[(triangle_array[triangle_index].n3) -1];
+        //n = n0*alpha + n1*beta + n2*gamma
+        interpolated_n = vectorAdd(vectorAdd(vectorScalar(n0, alpha), vectorScalar(n1, beta)), vectorScalar(n2, gamma));
+        normalize(interpolated_n);
+        return interpolated_n;
+    }
+}
 //initialize traceRay and tracePolygon so they can be used inside ShadeRay
 Intersection traceRay(Raytype ray, int self_index);
 Intersection tracePolygon(Raytype ray, int self_index);
@@ -374,12 +407,21 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     else if(shape == 1){ //the shape is a triangle
         //material color for flat shading??
         material = materialArray[0];
-        //calculate the normal of the triangle(FLAT SHADING)
         Triangle triangle = triangle_array[shape_index];
-        VectorType e1 = vectorSubtract(vertex_array[triangle_array[shape_index].b], vertex_array[triangle_array[shape_index].a]);
-        VectorType e2 = vectorSubtract(vertex_array[triangle_array[shape_index].c], vertex_array[triangle_array[shape_index].a]);
 
-        vector_N = crossProduct(e1, e2);
+        if(triangle.n1 == -1){//calculate the normal of the triangle(FLAT SHADING)
+            VectorType e1 = vectorSubtract(vertex_array[triangle_array[shape_index].b], vertex_array[triangle_array[shape_index].a]);
+            VectorType e2 = vectorSubtract(vertex_array[triangle_array[shape_index].c], vertex_array[triangle_array[shape_index].a]);
+
+            vector_N = crossProduct(e1, e2);
+            return material.Od;
+        }
+        else if(triangle.n1 > 0){
+            vector_N = interpolate_t_normal(shape_index, ray, t);
+        }
+        else{
+            printf("errmmmm");
+        }
     }
     else{
         std::cerr << "Attempting to shade an undefined shape" << std::endl;
@@ -509,19 +551,6 @@ ColorType oldShadeRay(int sphere_index, int t){
     }
 }
 
-ColorType easyShadePolygon(int triangle_index, int t){
-
-    if(t == -1){
-        return bkgcolor;
-    }
-    else{
-        MaterialColor material = materialArray[0];
-        ColorType color = material.Od;
-        return color;
-    }
-}
-
-
 
 //checks each sphere in the scene for a ray intersection and determines the closest valid intersection
 //skips the input self index if it's a valid index number
@@ -600,8 +629,10 @@ Intersection tracePolygon(Raytype ray, int self_index){
         if(self_index == k){
             continue;
         }
+        //std::cout << k << std::endl;
         //Define p0, p1 and p2 of the triangle
         p0 = vertex_array[(triangle_array[k].a)-1];
+        //printVector(p0);
         p1 = vertex_array[(triangle_array[k].b)-1];
         p2 = vertex_array[(triangle_array[k].c)-1];
 
@@ -624,65 +655,51 @@ Intersection tracePolygon(Raytype ray, int self_index){
         //find the denominator of the possible ray intersection
         //xd, yx and zd = ray intersection
         float denominator = (A*ray.intersection.i) + (B*ray.intersection.j) + (C * ray.intersection.k);
-
+        //printf("%f\n", denominator);
         if(denominator == 0){
             float t = -1;
         }
         else{
             float t = (-1 * (A * ray.origin.i + B*ray.origin.j + C*ray.origin.k))/denominator;
-            t_closest = find_t(t, t_closest);
-            if(t_closest == t){
-                triangle_index = k;
+            
+            VectorType p = {(ray.origin.i + (t * ray.intersection.i)), (ray.origin.j + (t * ray.intersection.j)), (ray.origin.k + (t * ray.intersection.k))};
+            VectorType ep = vectorSubtract(p, p0);
+        
+            float d11 = dotProduct(e1, e1);
+            float d22 = dotProduct(e2, e2);
+            float d12 = dotProduct(e1, e2);
+            float d1p = dotProduct(e1, ep);
+            float d2p = dotProduct(e2, ep);
+            
+            float determinant = ((d11 * d22) - (d12*d12));
+            if(determinant == 0){
+                return {-1, 1, ray, -1};
+                std::cerr << "erm" << std::endl;
+            }
+            else{
+                float beta = (d22*d1p - d12*d2p)/determinant;
+                float gamma = (d11 * d2p - d12 * d1p)/determinant;
+                float alpha = 1 - (beta + gamma);
+        
+                //intersection with plane was found AND ray is inside triangle
+                if(inside_triangle(beta, gamma, alpha)){
+                    t_closest = find_t(t, t_closest);
+                    if(t_closest == t){
+                        triangle_index = k;
+                    }
+                    //Intersection polygon_intersection = {triangle_index, 1, ray, t};
+                    //return polygon_intersection;
+                }
             }
         }
     }
-
     //if the ray didn't intersect with any plane, end here
     if(t_closest == -1){
         return {-1, 1, ray, -1};
     }
-
-    //if there was an intersection, check if it intersects inside the triangle
-    p0 = vertex_array[triangle_array[triangle_index].a];
-    p1 = vertex_array[triangle_array[triangle_index].b];
-    p2 = vertex_array[triangle_array[triangle_index].c];
-    e1 = vectorSubtract(p1, p0);
-    e2 = vectorSubtract(p2, p0);
-
-    VectorType p = {(ray.origin.i + (t_closest * ray.intersection.i)), (ray.origin.j + (t_closest * ray.intersection.j)), (ray.origin.k + (t_closest * ray.intersection.k))};
-    VectorType ep = vectorSubtract(p, p0);
-
-    float d11 = dotProduct(e1, e1);
-    float d22 = dotProduct(e2, e2);
-    float d12 = dotProduct(e1, e2);
-    float d1p = dotProduct(e1, ep);
-    float d2p = dotProduct(e2, ep);
-    
-    float determinant = ((d11 * d22) - (d12*d12));
-    if(determinant == 0){
-        return {-1, 1, ray, -1};
-        std::cerr << "erm" << std::endl;
-    }
     else{
-        float beta = (d11*d1p - d12 * d2p)/determinant;
-        float gamma = (d11 * d2p - d12 * d1p)/determinant;
-        float alpha = 1 - (beta + gamma);
-
-       
-        //intersection with plane was found AND ray is inside triangle
-        if(inside_triangle(beta, gamma, alpha)){
-            
-            Intersection polygon_intersection = {triangle_index, 1, ray, t_closest};
-
-            return polygon_intersection;
-        }
-        else{
-            //no intersection with triangle, t and index are -1
-            return {-1, 1, ray, -1};
-            
-        }
+        return {triangle_index, 1, ray, t_closest};
     }
-    return {-1, 1, ray, -1};
 }
 
 //Main function
@@ -783,7 +800,7 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Error parsing sphere line: " << line << std::endl;
             }
         }
-        else if (word == "eye" || word == "viewdir" || word == "updir" || word == "bkgcolor" || word == "v" || word == "f") {
+        else if (word == "eye" || word == "viewdir" || word == "updir" || word == "bkgcolor" || word == "v" || word == "vn") {
             if (ss >> num1 >> num2 >> num3) {
                 if (word == "eye"){
                     eye = {num1, num2, num3};
@@ -805,12 +822,56 @@ int main(int argc, const char * argv[]){
                     VectorType v = {num1, num2, num3};
                     vertex_array.push_back(v);
                 }
-                if(word == "f"){ //make sure first triangle index starts at 1, not 0??
-                    Triangle f = {static_cast<int>(num1), static_cast<int>(num2), static_cast<int>(num3)};
-                    triangle_array.push_back(f);
-                    triangle_ = true;
+                if(word == "vn"){
+                    VectorType n = {num1, num2, num3};
+                    normal_array.push_back(n);
                 }
-            } else {
+            }else {
+                std::cerr << "Error parsing " << word << " line: " << line << std::endl;
+            }
+        }
+        else if(word == "f"){
+            int triangle_type = 0;
+            std::string token;
+            std::vector<int> indices;
+            Triangle f;
+            int end_count = 0;
+
+            while (ss >> token) {
+                int count = 0;
+                std::stringstream tokenStream(token);
+                std::string index;
+                
+                while (std::getline(tokenStream, index, '/')) {
+                    if (!index.empty()) {
+                        indices.push_back(std::stoi(index));
+                        triangle_type ++;
+                    }
+                    count ++;
+                }
+                end_count = count;
+            }
+            if (triangle_type == 3 && end_count == 1) { // v v v
+                f = {indices[0], indices[1], indices[2], -1, -1, -1, -1, -1, -1};
+                triangle_array.push_back(f);
+                triangle_ = true;
+            }
+            else if(triangle_type == 6 && end_count == 2){ // v/vt v/vt v/vt
+                f = {indices[0], indices[2], indices[4], -1, -1, -1, indices[1], indices[3], indices[5]};
+                triangle_array.push_back(f);
+                triangle_ = true;
+            }
+            else if(triangle_type == 6 && end_count == 3){ // v//vn v//vn v//vn
+                f = {indices[0], indices[2], indices[4], indices[1], indices[3], indices[5], -1, -1, -1};
+                triangle_array.push_back(f);
+                triangle_ = true;
+            }
+            else if(triangle_type == 9 && end_count == 3){ // v/vn/vt v/vn/vt v/vn/vt
+                f = {indices[0], indices[3], indices[6], indices[1], indices[4], indices[7], indices[2], indices[5], indices[8]};
+                triangle_array.push_back(f);
+                triangle_ = true;
+            }
+            else {
                 std::cerr << "Error parsing " << word << " line: " << line << std::endl;
             }
         }
@@ -861,6 +922,7 @@ int main(int argc, const char * argv[]){
         for(int i = 0; i < px_height; i++){
             for(int j = 0; j < px_width; j++){
                 fout << std::round(bkgcolor.r * 255) << " " << std::round(bkgcolor.g * 255) << " " << std::round(bkgcolor.b * 255) << std::endl;
+                //std::cout << "No Object in scene" << std::endl;
             }
         }
         inputFile.close();
@@ -929,10 +991,6 @@ int main(int argc, const char * argv[]){
     //iterate through each pixel (j, i) where i = 0 to px_height-1, and j = 0 to px_width-1.
     for(int i = 0; i < px_height; i++){
         for(int j = 0; j < px_width; j++){
-            if(i == 3 && j == 28){
-                printf("LOOK HERE!!!!!");
-            }
-            
 
             //the point where each ray should pass through the viewing window correspoindng to each pixel
             VectorType intersect_point = vectorAdd(vectorAdd(ul, vectorScalar(h_change, j)), vectorScalar(v_change, i));
