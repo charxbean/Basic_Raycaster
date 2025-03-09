@@ -77,6 +77,13 @@ typedef struct{
     float t; //the t value of the intersection
 }Intersection;
 
+//contains the 2D array of a texture files colors
+typedef struct{
+    int success; //0 if the texture file was read successfully, -1 otherwise
+    std::vector<std::vector<ColorType>> array;
+}TextureFile;
+
+
 //initialize variables for the input
 VectorType eye;
 VectorType viewdir;
@@ -127,6 +134,8 @@ std::vector<Triangle> triangle_array;
 
 //array of normal vectors
 std::vector<VectorType> normal_array;
+
+std::vector<TextureFile> texture_array;
 
 
 //Returns a vector that is the cross product of vectors v1 and v2
@@ -702,6 +711,62 @@ Intersection tracePolygon(Raytype ray, int self_index){
     }
 }
 
+//reads the data in the input texture file into a 2D array of colors, returns the 2D color array
+std::vector<std::vector<ColorType>>readTextureFile(int width, int height, std::ifstream& file){
+
+    std::vector<std::vector<ColorType>> array(height, std::vector<ColorType>(width));
+    for(int i = 0; i < height ; i++){
+        for(int j = 0; j < width; j++){
+            float num1, num2, num3;
+            if (file >> num1 >> num2 >> num3) {
+                array[i][j] = {num1 / 255.0f, num2 / 255.0f, num3 / 255.0f}; // Normalize RGB
+            } else {
+                std::cerr << "Error reading texture pixel at (" << i << ", " << j << ")" << std::endl;
+                return {}; //empty array to signal failure
+            }
+        }
+    }
+    return array;
+}
+
+//opens the texture ppm file and checks for a correct header
+//returns a TextureFile type containting a 2D array and a success int: -1 on failure, 0 on success
+TextureFile openTextureFile(std::string filename){
+    std::ifstream file(filename);
+    if(!file.is_open()){
+        std::cerr << "Error: unable to open file: " << filename << std::endl;
+        std::vector<std::vector<ColorType>> array;
+        file.close();
+        return {-1, array};
+    }
+    std::string line;
+    std::getline(file, line);
+    std::istringstream ss(line);
+    std::string format;
+    int width, height, max_color;
+
+    if(ss >> format >> width >> height >> max_color){
+        if(format == "P3" && max_color == 255){
+            //std::cout << width << " " << height << std::endl;
+            std::vector<std::vector<ColorType>> array = readTextureFile(width, height, file);
+            file.close();
+            return {0, array};
+        }
+        else{
+            std::cerr << "Incorrect header for texture ppm file" << line << std::endl;
+            std::vector<std::vector<ColorType>> array;
+            file.close();
+            return {-1, array};
+        }
+    }
+    else{
+        std::cerr << "Incorrect header for texture ppm file" << line << std::endl;
+        std::vector<std::vector<ColorType>> array;
+        file.close();
+        return {-1, array};
+    }
+    
+}
 //Main function
 int main(int argc, const char * argv[]){
     
@@ -745,6 +810,7 @@ int main(int argc, const char * argv[]){
         std::string word;
         float num1, num2, num3, num4, num5, num6, num7, num8, num9;
         int num10;
+        std::string textureFile;
 
         ss >> word; //Read the first word of every line
 
@@ -893,6 +959,18 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Error parsing vfov line: " << line << std::endl;
             }
         }
+        else if(word == "texture"){
+            if(ss >> textureFile){
+                std::cout << textureFile << std::endl;
+                TextureFile texture = openTextureFile(textureFile);
+                if(texture.success == 0 && !(texture.array.empty())){
+                    texture_array.push_back(texture);
+                }
+            }
+            else{
+                std::cerr << "Error parsing texture file " << line << std::endl;
+            }
+        }
         else {
             std::cerr << "Unrecognized keyword: " << word << " in line: " << line << std::endl;
         }
@@ -903,11 +981,11 @@ int main(int argc, const char * argv[]){
         std::cerr << "Error: one or more viewer inputs (eye, view direction, updirection or vfov) was not given" << std::endl;
         return -1;
     }
-    else if(!valid_input.bkgcolor_){
+    if(!valid_input.bkgcolor_){
         std::cerr << "Error: No background color input" << std::endl;
         return -1;
     }
-    else if(!valid_input.px_height_ || !valid_input.px_width_){
+    if(!valid_input.px_height_ || !valid_input.px_width_){
         std::cerr << "Error: imsize width and height were not properly input" << std::endl;
         return -1;
     }

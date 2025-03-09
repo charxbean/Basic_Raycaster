@@ -18,6 +18,7 @@ vn -1 -1 1
 vn 1 -1 1
 vn 1 1 1
 
+texture texture.ppm
 f 1//1 2//2 3//3
 
 
