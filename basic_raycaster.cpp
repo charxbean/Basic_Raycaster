@@ -67,6 +67,7 @@ typedef struct{
     int a, b, c;
     int n1, n2, n3;
     int t1, t2, t3;
+    int material, texture;
 }Triangle;
 
 //return type of the trace_ray and trace_polygon functions
@@ -77,12 +78,22 @@ typedef struct{
     float t; //the t value of the intersection
 }Intersection;
 
-//contains the 2D array of a texture files colors
+//defines a point P's beta, gamma and alpha
+typedef struct{
+    float beta, gamma, alpha;
+}BGA;
+
+//contains the 2D array of a texture files colors and the texture image width/height
 typedef struct{
     int success; //0 if the texture file was read successfully, -1 otherwise
+    int width, height;
     std::vector<std::vector<ColorType>> array;
 }TextureFile;
 
+//struct of texture coordinate float values u and v
+typedef struct{
+    float u, v;
+}TextureCoords;
 
 //initialize variables for the input
 VectorType eye;
@@ -135,6 +146,10 @@ std::vector<Triangle> triangle_array;
 //array of normal vectors
 std::vector<VectorType> normal_array;
 
+//array of texture coordinates (u,v)
+std::vector<TextureCoords> texture_coords;
+
+//array of TextureFile types which store texture 2D arrays and width/height
 std::vector<TextureFile> texture_array;
 
 
@@ -253,7 +268,7 @@ float find_t(float t1, float t2){
 bool inside_triangle(float b, float g, float a){
 
     if((a + b + g > .9) && (a + b + g < 1.09)){
-        if((a > 0 && a < 1) && (b > 0 && b < 1) && (g > 0 && g < 1)){
+        if((a >= 0 && a <= 1) && (b >= 0 && b <= 1) && (g >= 0 && g <= 1)){
             return true;
         }
         else{
@@ -343,14 +358,8 @@ VectorType vector_L;
 VectorType vector_H;
 VectorType vector_V;
 
-VectorType interpolate_t_normal(int triangle_index, Raytype ray, float t){
-    if(triangle_array[triangle_index].n1 == -1){
-        return {-1, -1, -1};
-        std::cerr << "Trying to interpolate normals, but the triangle has no input normal values" << std::endl;
-    }
-    VectorType interpolated_n;
+BGA get_bga(int triangle_index, Raytype ray, float t){
     VectorType p0 = vertex_array[(triangle_array[triangle_index].a)-1];
-    //printVector(p0);
     VectorType p1 = vertex_array[(triangle_array[triangle_index].b)-1];
     VectorType p2 = vertex_array[(triangle_array[triangle_index].c)-1];
 
@@ -375,14 +384,24 @@ VectorType interpolate_t_normal(int triangle_index, Raytype ray, float t){
         float beta = (d22*d1p - d12*d2p)/determinant;
         float gamma = (d11 * d2p - d12 * d1p)/determinant;
         float alpha = 1 - (beta + gamma);
-        VectorType n0 = normal_array[(triangle_array[triangle_index].n1) -1];
-        VectorType n1 = normal_array[(triangle_array[triangle_index].n2) -1];
-        VectorType n2 = normal_array[(triangle_array[triangle_index].n3) -1];
-        //n = n0*alpha + n1*beta + n2*gamma
-        interpolated_n = vectorAdd(vectorAdd(vectorScalar(n0, alpha), vectorScalar(n1, beta)), vectorScalar(n2, gamma));
-        normalize(interpolated_n);
-        return interpolated_n;
+        return {beta, gamma, alpha};
     }
+}
+
+VectorType interpolate_t_normal(int triangle_index, Raytype ray, float t){
+    if(triangle_array[triangle_index].n1 == -1){
+        return {-1, -1, -1};
+        std::cerr << "Trying to interpolate normals, but the triangle has no input normal values" << std::endl;
+    }
+    VectorType interpolated_n;
+    BGA bga = get_bga(triangle_index, ray, t);
+    VectorType n0 = normal_array[(triangle_array[triangle_index].n1) -1];
+    VectorType n1 = normal_array[(triangle_array[triangle_index].n2) -1];
+    VectorType n2 = normal_array[(triangle_array[triangle_index].n3) -1];
+        //n = n0*alpha + n1*beta + n2*gamma
+    interpolated_n = vectorAdd(vectorAdd(vectorScalar(n0, bga.alpha), vectorScalar(n1, bga.beta)), vectorScalar(n2, bga.gamma));
+    normalize(interpolated_n);
+    return interpolated_n;
 }
 //initialize traceRay and tracePolygon so they can be used inside ShadeRay
 Intersection traceRay(Raytype ray, int self_index);
@@ -414,31 +433,48 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         normalize(vector_N);
     }
     else if(shape == 1){ //the shape is a triangle
-        //material color for flat shading??
-        material = materialArray[0];
         Triangle triangle = triangle_array[shape_index];
+        material = materialArray[triangle.material];
 
         if(triangle.n1 == -1){//calculate the normal of the triangle(FLAT SHADING)
-            VectorType e1 = vectorSubtract(vertex_array[triangle_array[shape_index].b], vertex_array[triangle_array[shape_index].a]);
-            VectorType e2 = vectorSubtract(vertex_array[triangle_array[shape_index].c], vertex_array[triangle_array[shape_index].a]);
+            VectorType e1 = vectorSubtract(vertex_array[(triangle.b)-1], vertex_array[(triangle.a)-1]);
+            VectorType e2 = vectorSubtract(vertex_array[(triangle.c)-1], vertex_array[(triangle.a)-1]);
 
             vector_N = crossProduct(e1, e2);
             return material.Od;
         }
-        else if(triangle.n1 > 0){
+        else if(triangle.n1 > 0){ //calculate normal for SMOOTH SHADING
             vector_N = interpolate_t_normal(shape_index, ray, t);
         }
-        else{
-            printf("errmmmm");
+        
+        //TEXTURE MAPPING
+        //if a texture and texture coords were input, find u,v to lookup Od color
+        if(triangle.t1 > 0){
+            TextureFile texture = texture_array[triangle.texture];
+            BGA bga = get_bga(shape_index, ray, t);
+            float u0 = texture_coords[(triangle.t1)-1].u;
+            float u1 = texture_coords[(triangle.t2)-1].u;
+            float u2 = texture_coords[(triangle.t3)-1].u;
+
+            float v0 = texture_coords[(triangle.t1)-1].v;
+            float v1 = texture_coords[(triangle.t2)-1].v;
+            float v2 = texture_coords[(triangle.t3)-1].v;
+
+            float u = bga.alpha*u0 + bga.beta*u1 + bga.gamma*u2;
+            float v = bga.alpha*v0 + bga.beta*v1 + bga.gamma*v2;
+
+            int i = std::round(u*(texture.width-1));
+            int j = std::round(v*(texture.height-1));
+
+            //change the od color to the pixel at (i,j) in the texture image
+            material.Od = texture.array[i][j];
         }
     }
     else{
         std::cerr << "Attempting to shade an undefined shape" << std::endl;
         return bkgcolor;
     }
-    
-    //Calculate illumination 
-    
+
     //calculate vector L for each point light source
     for(int k = 0; k < lightArray.size(); k++){
         if(lightArray[k].type == 1){
@@ -456,7 +492,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     vector_V = vectorDivide(vectorSubtract(ray.origin, ray.intersection), vectorLength(vectorSubtract(ray.origin, ray.intersection)));
     normalize(vector_V);
     
-    //initialize intensity to the ambient light
+    //initialize illumination to the ambient light
     ColorType illumination = colorMultiply(material.Od, material.ka); //ka + Od
 
     //for each light source, compute it's individual intensity and add to the total intensity value
@@ -517,8 +553,6 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
             }
         }
 
-        //ONLY WHILE TESTING:
-        shadow_flag = 1;
         //if there is no shadow, add the illumination from this light source to the total
         if(shadow_flag == 1){
             ColorType illum_L = colorMultiply(colorAdd(diffuse, specular), lightArray[k].intensity);
@@ -737,7 +771,7 @@ TextureFile openTextureFile(std::string filename){
         std::cerr << "Error: unable to open file: " << filename << std::endl;
         std::vector<std::vector<ColorType>> array;
         file.close();
-        return {-1, array};
+        return {-1, -1, -1, array};
     }
     std::string line;
     std::getline(file, line);
@@ -750,20 +784,20 @@ TextureFile openTextureFile(std::string filename){
             //std::cout << width << " " << height << std::endl;
             std::vector<std::vector<ColorType>> array = readTextureFile(width, height, file);
             file.close();
-            return {0, array};
+            return {0, width, height, array};
         }
         else{
             std::cerr << "Incorrect header for texture ppm file" << line << std::endl;
             std::vector<std::vector<ColorType>> array;
             file.close();
-            return {-1, array};
+            return {-1, -1, -1, array};
         }
     }
     else{
         std::cerr << "Incorrect header for texture ppm file" << line << std::endl;
         std::vector<std::vector<ColorType>> array;
         file.close();
-        return {-1, array};
+        return {-1, -1, -1, array};
     }
     
 }
@@ -918,22 +952,35 @@ int main(int argc, const char * argv[]){
                 end_count = count;
             }
             if (triangle_type == 3 && end_count == 1) { // v v v
-                f = {indices[0], indices[1], indices[2], -1, -1, -1, -1, -1, -1};
+                if(materialArray.size() < 1){
+                    std::cerr << "Material must be specified before an object in the input file" << std::endl;
+                }
+                //triangle f = {v1, v2, v3, n1, n2, n3, t1, t2, t3, material index, texture index}
+                f = {indices[0], indices[1], indices[2], -1, -1, -1, -1, -1, -1, static_cast<int>(materialArray.size() - 1), -1};
                 triangle_array.push_back(f);
                 triangle_ = true;
             }
             else if(triangle_type == 6 && end_count == 2){ // v/vt v/vt v/vt
-                f = {indices[0], indices[2], indices[4], -1, -1, -1, indices[1], indices[3], indices[5]};
+                if(materialArray.size() < 1 || texture_array.size() < 1){
+                    std::cerr << "Material must be specified before an object in the input file" << std::endl;
+                }
+                f = {indices[0], indices[2], indices[4], -1, -1, -1, indices[1], indices[3], indices[5], static_cast<int>(materialArray.size() - 1), static_cast<int>(texture_array.size() - 1)};
                 triangle_array.push_back(f);
                 triangle_ = true;
             }
             else if(triangle_type == 6 && end_count == 3){ // v//vn v//vn v//vn
-                f = {indices[0], indices[2], indices[4], indices[1], indices[3], indices[5], -1, -1, -1};
+                if(materialArray.size() < 1){
+                    std::cerr << "Material must be specified before an object in the input file" << std::endl;
+                }
+                f = {indices[0], indices[2], indices[4], indices[1], indices[3], indices[5], -1, -1, -1, static_cast<int>(materialArray.size() - 1), -1};
                 triangle_array.push_back(f);
                 triangle_ = true;
             }
             else if(triangle_type == 9 && end_count == 3){ // v/vn/vt v/vn/vt v/vn/vt
-                f = {indices[0], indices[3], indices[6], indices[1], indices[4], indices[7], indices[2], indices[5], indices[8]};
+                if(materialArray.size() < 1 || texture_array.size() < 1){
+                    std::cerr << "Material must be specified before an object in the input file" << std::endl;
+                }
+                f = {indices[0], indices[3], indices[6], indices[1], indices[4], indices[7], indices[2], indices[5], indices[8], static_cast<int>(materialArray.size() - 1), static_cast<int>(texture_array.size() - 1)};
                 triangle_array.push_back(f);
                 triangle_ = true;
             }
@@ -941,14 +988,20 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Error parsing " << word << " line: " << line << std::endl;
             }
         }
-        else if (word == "imsize") {
+        else if (word == "imsize" || word == "vt") {
             if (ss >> num1 >> num2) {
-                px_width = num1;
-                px_height = num2;
-                valid_input.px_height_ = true;
-                valid_input.px_width_ = true;
+                if(word == "imsize"){
+                    px_width = num1;
+                    px_height = num2;
+                    valid_input.px_height_ = true;
+                    valid_input.px_width_ = true;
+                }
+                if(word == "vt"){
+                    TextureCoords t = {num1, num2};
+                    texture_coords.push_back(t);
+                }
             } else {
-                std::cerr << "Error parsing imsize line: " << line << std::endl;
+                std::cerr << "Error parsing line: " << line << std::endl;
             }
         }
         else if (word == "vfov") {
@@ -1087,18 +1140,6 @@ int main(int argc, const char * argv[]){
 
             //determine whether a sphere or polygon was intersected closest to the eye
             float t_shape = find_t(trace_polygon.t, trace_ray.t);
-
-            //use shadeRay to determine the pixel color based on which object was intersected first
-            /*
-            ColorType color;
-            if(t_shape == trace_ray.t){
-                color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
-            }
-            else if(t_shape = trace_polygon.t){
-                color = easyShadePolygon(trace_polygon.shape_index, trace_polygon.t);
-            }
-            fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
-            */
 
             ColorType color;
             if(t_shape == trace_ray.t){
