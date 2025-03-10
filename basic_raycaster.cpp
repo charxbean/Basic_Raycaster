@@ -7,6 +7,8 @@
 #include <cctype>
 #include <algorithm>
 
+#define _USE_MATH_DEFINES
+
 //vector type
 typedef struct{
     float i, j, k;
@@ -37,10 +39,12 @@ typedef struct{
 
 //sphere defined by it's center point (x, y, z) and a radius
 //has m as it's material property -> an index into an array of material properties
+//and t as it's texture -> also an index into an array of textures
 typedef struct{
     VectorType center;
     float r;
     int m;
+    int t;
 } SphereType;
 
 //equation of a ray = (x, y, z) - t*(dx, dy, dz)
@@ -403,6 +407,7 @@ VectorType interpolate_t_normal(int triangle_index, Raytype ray, float t){
     normalize(interpolated_n);
     return interpolated_n;
 }
+
 //initialize traceRay and tracePolygon so they can be used inside ShadeRay
 Intersection traceRay(Raytype ray, int self_index);
 Intersection tracePolygon(Raytype ray, int self_index);
@@ -418,6 +423,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
 
     //initialize material color
     MaterialColor material;
+    ColorType texture_color = {-1, -1, -1};
 
     //the intersection point of the surface from the eye
     VectorType intersection = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
@@ -431,6 +437,27 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         //calculate normal vector N
         vector_N = vectorDivide(vectorSubtract(intersection, sphere.center), sphere.r);
         normalize(vector_N);
+
+        //if the sphere has a texture, calculate u and v to get the texture color
+        if(sphere.t != -1){ 
+            TextureFile texture = texture_array[sphere.t];
+            float phi = std::acos((intersection.k - sphere.center.k)/sphere.r);
+            float theta = std::atan2((intersection.j - sphere.center.j), (intersection.i - sphere.center.i));
+
+            float v = phi/M_PI;
+            float u;
+            if(theta > 0){
+                u = theta/(2*M_PI);
+            }
+            else{
+                u = (theta + 2*M_PI)/(2*M_PI);
+            }
+
+            int i = std::round(u*(texture.width-1));
+            int j = std::round(v*(texture.height-1));
+
+            texture_color = texture.array[i][j];
+        }
     }
     else if(shape == 1){ //the shape is a triangle
         Triangle triangle = triangle_array[shape_index];
@@ -467,7 +494,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
             int j = std::round(v*(texture.height-1));
 
             //change the od color to the pixel at (i,j) in the texture image
-            material.Od = texture.array[i][j];
+            texture_color = texture.array[i][j];
         }
     }
     else{
@@ -493,7 +520,15 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     normalize(vector_V);
     
     //initialize illumination to the ambient light
-    ColorType illumination = colorMultiply(material.Od, material.ka); //ka + Od
+    //if theres a texture, switch od with texture color
+    ColorType illumination;
+    if(texture_color.r == -1){ //no texture
+        illumination = colorMultiply(material.Od, material.ka); //ka + Od
+    }
+    else{
+        illumination = colorMultiply(texture_color, material.ka); //ka + texture_color
+    }
+    
 
     //for each light source, compute it's individual intensity and add to the total intensity value
     for(int k = 0; k < lightArray.size(); k++){
@@ -502,8 +537,14 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         vector_H = vectorDivide(vector_H, vectorLength(vector_H)); // H = H / ||H||
         normalize(vector_H);
 
-        //calculate the diffuse color
-        ColorType diffuse = colorMultiply(material.Od, material.kd); //kd * od
+        //calculate the diffuse color, if theres a texture, Od = texture color
+        ColorType diffuse;
+        if(texture_color.r == -1){ //no texture
+            diffuse = colorMultiply(material.Od, material.kd); //kd * od
+        }
+        else{ //texture
+            diffuse = colorMultiply(texture_color, material.kd); //kd * texture_color
+        }
         float max_NL = max(0.0, dotProduct(vector_N, L_array[k])); //clamp diffuse at 0
         diffuse = colorMultiply(diffuse, max_NL);
 
@@ -749,8 +790,8 @@ Intersection tracePolygon(Raytype ray, int self_index){
 std::vector<std::vector<ColorType>>readTextureFile(int width, int height, std::ifstream& file){
 
     std::vector<std::vector<ColorType>> array(height, std::vector<ColorType>(width));
-    for(int i = 0; i < height ; i++){
-        for(int j = 0; j < width; j++){
+    for(int i = 0; i < width ; i++){
+        for(int j = 0; j < height; j++){
             float num1, num2, num3;
             if (file >> num1 >> num2 >> num3) {
                 array[i][j] = {num1 / 255.0f, num2 / 255.0f, num3 / 255.0f}; // Normalize RGB
@@ -893,9 +934,17 @@ int main(int argc, const char * argv[]){
             if (ss >> num1 >> num2 >> num3 >> num4) {
                 //set sphere material to the index of the last material in the material array
                 VectorType center = {num1, num2, num3};
-                SphereType sphere = {center, num4, static_cast<int>(materialArray.size() - 1)};
-                sphereArray.push_back(sphere); //add spheres to the spere array
-                sphere_ = true;
+                if(texture_array.size() > 0){
+                    SphereType sphere = {center, num4, static_cast<int>(materialArray.size() - 1), static_cast<int>(texture_array.size() - 1)};
+                    sphereArray.push_back(sphere); //add spheres to the spere array
+                    sphere_ = true;
+                }
+                else{
+                    SphereType sphere = {center, num4, static_cast<int>(materialArray.size() - 1), -1};
+                    sphereArray.push_back(sphere); //add spheres to the spere array
+                    sphere_ = true;
+                }
+                
             } else {
                 std::cerr << "Error parsing sphere line: " << line << std::endl;
             }
@@ -962,7 +1011,7 @@ int main(int argc, const char * argv[]){
             }
             else if(triangle_type == 6 && end_count == 2){ // v/vt v/vt v/vt
                 if(materialArray.size() < 1 || texture_array.size() < 1){
-                    std::cerr << "Material must be specified before an object in the input file" << std::endl;
+                    std::cerr << "Material and texture must be specified before an object in the input file" << std::endl;
                 }
                 f = {indices[0], indices[2], indices[4], -1, -1, -1, indices[1], indices[3], indices[5], static_cast<int>(materialArray.size() - 1), static_cast<int>(texture_array.size() - 1)};
                 triangle_array.push_back(f);
@@ -978,7 +1027,7 @@ int main(int argc, const char * argv[]){
             }
             else if(triangle_type == 9 && end_count == 3){ // v/vn/vt v/vn/vt v/vn/vt
                 if(materialArray.size() < 1 || texture_array.size() < 1){
-                    std::cerr << "Material must be specified before an object in the input file" << std::endl;
+                    std::cerr << "Material and texture must be specified before an object in the input file" << std::endl;
                 }
                 f = {indices[0], indices[3], indices[6], indices[1], indices[4], indices[7], indices[2], indices[5], indices[8], static_cast<int>(materialArray.size() - 1), static_cast<int>(texture_array.size() - 1)};
                 triangle_array.push_back(f);
@@ -1053,9 +1102,9 @@ int main(int argc, const char * argv[]){
         for(int i = 0; i < px_height; i++){
             for(int j = 0; j < px_width; j++){
                 fout << std::round(bkgcolor.r * 255) << " " << std::round(bkgcolor.g * 255) << " " << std::round(bkgcolor.b * 255) << std::endl;
-                //std::cout << "No Object in scene" << std::endl;
             }
         }
+        std::cout << "No Object in scene" << std::endl;
         inputFile.close();
         return 0;
     }//check that if there is an object, there is also a material color
