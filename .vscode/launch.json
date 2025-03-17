@@ -1,0 +1,23 @@
+
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug C++ Program",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/basic_raycaster.exe", // Replace with compiled executable name
+            "args": ["example_test_5.txt"],                      // <-- Command line arguments
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true, // Optional: Open a separate console window
+            "MIMode": "gdb",         // Or lldb on Mac
+            "preLaunchTask": "build" // Name of the build task (optional but useful)
+        }
+    ]
+}

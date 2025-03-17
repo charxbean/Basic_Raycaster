@@ -267,8 +267,10 @@ float find_t(float t1, float t2){
     }
 }
 
-//Check the input barycentric coordinates to determine if they meet the conditions for being inside a triangle
-//if conditions are met, return true, otherwise return false
+/**
+ * Check the input barycentric coordinates to determine if they meet the conditions for being inside a triangle
+ * if conditions are met, return true, otherwise return false
+ */
 bool inside_triangle(float b, float g, float a){
 
     if((a + b + g > .9) && (a + b + g < 1.09)){
@@ -412,8 +414,10 @@ VectorType interpolate_t_normal(int triangle_index, Raytype ray, float t){
 Intersection traceRay(Raytype ray, int self_index);
 Intersection tracePolygon(Raytype ray, int self_index);
 
-//shadeRay function takes the index of a sphere in the sphere array, the ray that intersected it, and the t value from the intersection
-//returns the color for that pixel computed using the Blinn-Phong method
+/**
+ * Takes a struct defining the index of a shape, the shape type, the ray that intersected it and the t value of the intersection
+ * Returns the color of the pixel at the intersection point, computed using the Blinn-Phong method
+ */
 ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     
     //if t < 0 then no object intersection was found, return the background color
@@ -437,7 +441,6 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         //calculate normal vector N
         vector_N = vectorDivide(vectorSubtract(intersection, sphere.center), sphere.r);
         normalize(vector_N);
-
         //if the sphere has a texture, calculate u and v to get the texture color
         if(sphere.t != -1){ 
             TextureFile texture = texture_array[sphere.t];
@@ -453,10 +456,9 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
                 u = (theta + 2*M_PI)/(2*M_PI);
             }
 
-            int i = std::round(u*(texture.width-1));
-            int j = std::round(v*(texture.height-1));
-
-            texture_color = texture.array[i][j];
+            int i = std::round(u*(texture.width -1));
+            int j = std::round(v*(texture.height -1));
+            texture_color = texture.array[j][i];
         }
     }
     else if(shape == 1){ //the shape is a triangle
@@ -519,16 +521,19 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     vector_V = vectorDivide(vectorSubtract(ray.origin, ray.intersection), vectorLength(vectorSubtract(ray.origin, ray.intersection)));
     normalize(vector_V);
     
-    //initialize illumination to the ambient light
+    //initialize illumination to the ambient light, initialize base diffuse and specular colors
     //if theres a texture, switch od with texture color
     ColorType illumination;
+    ColorType diffuse;
     if(texture_color.r == -1){ //no texture
         illumination = colorMultiply(material.Od, material.ka); //ka + Od
+        diffuse = colorMultiply(material.Od, material.kd); //kd * od
     }
     else{
         illumination = colorMultiply(texture_color, material.ka); //ka + texture_color
+        diffuse = colorMultiply(texture_color, material.kd); //kd * texture_color
     }
-    
+    ColorType specular = colorMultiply(material.Os, material.ks); //ks * Os
 
     //for each light source, compute it's individual intensity and add to the total intensity value
     for(int k = 0; k < lightArray.size(); k++){
@@ -537,19 +542,11 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         vector_H = vectorDivide(vector_H, vectorLength(vector_H)); // H = H / ||H||
         normalize(vector_H);
 
-        //calculate the diffuse color, if theres a texture, Od = texture color
-        ColorType diffuse;
-        if(texture_color.r == -1){ //no texture
-            diffuse = colorMultiply(material.Od, material.kd); //kd * od
-        }
-        else{ //texture
-            diffuse = colorMultiply(texture_color, material.kd); //kd * texture_color
-        }
+        //calculate diffuse color
         float max_NL = max(0.0, dotProduct(vector_N, L_array[k])); //clamp diffuse at 0
         diffuse = colorMultiply(diffuse, max_NL);
 
         //calculate specular color
-        ColorType specular = colorMultiply(material.Os, material.ks); //ks * Os
         float max_NH = max(0.0, dotProduct(vector_N, vector_H)); //clamp specular at 0
         specular = colorMultiply(specular, pow(max_NH, material.n)); //(ks * Os) * (N dot H)^n
         
@@ -636,9 +633,11 @@ ColorType oldShadeRay(int sphere_index, int t){
 }
 
 
-//checks each sphere in the scene for a ray intersection and determines the closest valid intersection
-//skips the input self index if it's a valid index number
-//returns a struct containting the closest t-value, the intersected sphere index and the ray
+/*
+* checks each sphere in the sccene for the closest valid intersection with the given ray
+* skips the input self-index if it's a valid index number
+* returns a struct containting the closest t-value (or -1), the intersected sphere index and the ray
+*/
 Intersection traceRay(Raytype ray, int self_index){
 
     //variables to track the closest t value and corresponding sphere/object
@@ -692,9 +691,12 @@ Intersection traceRay(Raytype ray, int self_index){
     return traceRay_intersection;
 }
 
-//checks each triangle in the sccene for a ray intersection
 
-//goes through each triangle in the triangle array
+/*
+* checks each triangle in the sccene for the closest valid intersection with the given ray
+* skips the input self-index if it's a valid index number
+* returns a struct containting the closest t-value (Or -1), the intersected triangle index and the ray
+*/
 Intersection tracePolygon(Raytype ray, int self_index){
     //p0, p1 and p2 are a b and c of the traingle type
     //define e1, e2 and n
@@ -777,21 +779,24 @@ Intersection tracePolygon(Raytype ray, int self_index){
             }
         }
     }
-    //if the ray didn't intersect with any plane, end here
+    //if the ray didn't intersect with any triangle, return -1
     if(t_closest == -1){
         return {-1, 1, ray, -1};
     }
-    else{
+    else{//else return the closest intersection
         return {triangle_index, 1, ray, t_closest};
     }
 }
 
-//reads the data in the input texture file into a 2D array of colors, returns the 2D color array
-std::vector<std::vector<ColorType>>readTextureFile(int width, int height, std::ifstream& file){
 
+/**
+ * reads the data in the input texture file into a 2D array of colors
+ * returns the 2D color array or an empty array on error
+ */
+std::vector<std::vector<ColorType>>readTextureFile(int width, int height, std::ifstream& file){
     std::vector<std::vector<ColorType>> array(height, std::vector<ColorType>(width));
-    for(int i = 0; i < width ; i++){
-        for(int j = 0; j < height; j++){
+    for(int i = 0; i < height ; i++){
+        for(int j = 0; j < width; j++){
             float num1, num2, num3;
             if (file >> num1 >> num2 >> num3) {
                 array[i][j] = {num1 / 255.0f, num2 / 255.0f, num3 / 255.0f}; // Normalize RGB
@@ -804,8 +809,10 @@ std::vector<std::vector<ColorType>>readTextureFile(int width, int height, std::i
     return array;
 }
 
-//opens the texture ppm file and checks for a correct header
-//returns a TextureFile type containting a 2D array and a success int: -1 on failure, 0 on success
+/**
+ * opens the texture ppm file and checks for a correct header
+ * returns a TextureFile type containting a 2D array and a success indicator int: -1 on failure, 0 on success
+ */
 TextureFile openTextureFile(std::string filename){
     std::ifstream file(filename);
     if(!file.is_open()){
@@ -822,7 +829,6 @@ TextureFile openTextureFile(std::string filename){
 
     if(ss >> format >> width >> height >> max_color){
         if(format == "P3" && max_color == 255){
-            //std::cout << width << " " << height << std::endl;
             std::vector<std::vector<ColorType>> array = readTextureFile(width, height, file);
             file.close();
             return {0, width, height, array};
@@ -842,6 +848,7 @@ TextureFile openTextureFile(std::string filename){
     }
     
 }
+
 //Main function
 int main(int argc, const char * argv[]){
     
@@ -1067,6 +1074,10 @@ int main(int argc, const char * argv[]){
                 TextureFile texture = openTextureFile(textureFile);
                 if(texture.success == 0 && !(texture.array.empty())){
                     texture_array.push_back(texture);
+                    std::cout << "texture read a success" << std::endl;
+                }
+                else{
+                    std::cerr << "Error parsing texture file" << line << std::endl;
                 }
             }
             else{
@@ -1115,6 +1126,8 @@ int main(int argc, const char * argv[]){
     }
     
     //PRELIMINARY MATH
+    normalize(viewdir);
+    normalize(updir);
 
     //find vectors u and v
     VectorType u = crossProduct(viewdir, updir);
@@ -1183,20 +1196,25 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Unable to normalize" << std::endl;
             }
             
-            //use trace_ray and trace_polygon to look for object intersections
+            //use trace_ray and trace_polygon to look for an object intersection
             Intersection trace_ray = traceRay(ray, -1);
             Intersection trace_polygon = tracePolygon(ray, -1);
 
-            //determine whether a sphere or polygon was intersected closest to the eye
+            //use t values to determine whether a sphere or polygon was intersected closest to the eye
             float t_shape = find_t(trace_polygon.t, trace_ray.t);
 
+            //Use shade ray to define the pixel color based on which object was intersected if any
             ColorType color;
             if(t_shape == trace_ray.t){
                 color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
             }
-            else if(t_shape = trace_polygon.t){
+            else if(t_shape == trace_polygon.t){
                 color = shadeRay(trace_polygon.shape_index, trace_polygon.shape, trace_polygon.ray, trace_polygon.t);  
             }
+            else{ //t_shape is -1
+                color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, t_shape);  
+            }
+            //print the color to the output file
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
         }
     }
