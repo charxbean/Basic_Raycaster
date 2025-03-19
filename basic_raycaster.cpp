@@ -22,7 +22,7 @@ int px_width;
 int px_height;
 
 //arbitrary d value
-int d = 500;
+int d = 1;
 
 //color type
 typedef struct{
@@ -91,7 +91,7 @@ typedef struct{
 typedef struct{
     int success; //0 if the texture file was read successfully, -1 otherwise
     int width, height;
-    std::vector<std::vector<ColorType>> array;
+    std::vector<std::vector<ColorType>> array; //2D array of texture colors
 }TextureFile;
 
 //struct of texture coordinate float values u and v
@@ -372,7 +372,7 @@ BGA get_bga(int triangle_index, Raytype ray, float t){
     VectorType e1 = vectorSubtract(p1, p0);
     VectorType e2 = vectorSubtract(p2, p0);
 
-    VectorType p = {(ray.origin.i + (t * ray.intersection.i)), (ray.origin.j + (t * ray.intersection.j)), (ray.origin.k + (t * ray.intersection.k))};
+    VectorType p = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
     VectorType ep = vectorSubtract(p, p0);
 
     float d11 = dotProduct(e1, e1);
@@ -443,7 +443,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         normalize(vector_N);
         //if the sphere has a texture, calculate u and v to get the texture color
         if(sphere.t != -1){ 
-            TextureFile texture = texture_array[sphere.t];
+            TextureFile *texture = &texture_array[sphere.t];
             float phi = std::acos((intersection.k - sphere.center.k)/sphere.r);
             float theta = std::atan2((intersection.j - sphere.center.j), (intersection.i - sphere.center.i));
 
@@ -456,31 +456,38 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
                 u = (theta + 2*M_PI)/(2*M_PI);
             }
 
-            int i = std::round(u*(texture.width -1));
-            int j = std::round(v*(texture.height -1));
-            texture_color = texture.array[j][i];
+            int i = std::round(u*(texture->width -1));
+            int j = std::round(v*(texture->height -1));
+            texture_color = texture->array[j][i];
         }
     }
     else if(shape == 1){ //the shape is a triangle
-        Triangle triangle = triangle_array[shape_index];
+        Triangle& triangle = triangle_array[shape_index];
         material = materialArray[triangle.material];
 
-        if(triangle.n1 == -1){//calculate the normal of the triangle(FLAT SHADING)
+        //FLAT SHADING: immediately return OD
+        if(triangle.n1 == -1 && triangle.t1 == -1){
             VectorType e1 = vectorSubtract(vertex_array[(triangle.b)-1], vertex_array[(triangle.a)-1]);
             VectorType e2 = vectorSubtract(vertex_array[(triangle.c)-1], vertex_array[(triangle.a)-1]);
 
             vector_N = crossProduct(e1, e2);
             return material.Od;
         }
-        else if(triangle.n1 > 0){ //calculate normal for SMOOTH SHADING
+        //SMOOTH SHADING: Calculate normal
+        if(triangle.n1 > 0){
             vector_N = interpolate_t_normal(shape_index, ray, t);
         }
         
-        //TEXTURE MAPPING
-        //if a texture and texture coords were input, find u,v to lookup Od color
+        /**
+         * TEXTURE MAPPING
+         * if a texture and texture coords were input, find u,v to lookup Od color
+         */
         if(triangle.t1 > 0){
-            TextureFile texture = texture_array[triangle.texture];
+            TextureFile* texture = &texture_array[triangle.texture];
             BGA bga = get_bga(shape_index, ray, t);
+            if(bga.alpha == -1){
+                std::cerr << "Error: bga values are invalid" << std::endl;
+            }
             float u0 = texture_coords[(triangle.t1)-1].u;
             float u1 = texture_coords[(triangle.t2)-1].u;
             float u2 = texture_coords[(triangle.t3)-1].u;
@@ -491,12 +498,16 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
 
             float u = bga.alpha*u0 + bga.beta*u1 + bga.gamma*u2;
             float v = bga.alpha*v0 + bga.beta*v1 + bga.gamma*v2;
-
-            int i = std::round(u*(texture.width-1));
-            int j = std::round(v*(texture.height-1));
+            u = std::fmod(u, 1.0f);
+            if(u < 0) u += 1.0f;
+            
+            v = std::fmod(v, 1.0f);
+            if(v < 0) v += 1.0f;
+            int i = std::round(u*(texture->width-1));
+            int j = std::round(v*(texture->height-1));
 
             //change the od color to the pixel at (i,j) in the texture image
-            texture_color = texture.array[i][j];
+            texture_color = texture->array[j][i];
         }
     }
     else{
@@ -572,6 +583,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
             std::cerr << "Attempting to trace undefined shape" << std::endl;
             trace_ray = {-1, 0, shadow_ray, -1};
         }
+        
 
         //use the t value from trace_ray to determine if there is a shadow or not
         if(trace_ray.t < 0){
@@ -715,42 +727,38 @@ Intersection tracePolygon(Raytype ray, int self_index){
         if(self_index == k){
             continue;
         }
-        //std::cout << k << std::endl;
-        //Define p0, p1 and p2 of the triangle
+        
         p0 = vertex_array[(triangle_array[k].a)-1];
-        //printVector(p0);
         p1 = vertex_array[(triangle_array[k].b)-1];
         p2 = vertex_array[(triangle_array[k].c)-1];
 
         e1 = vectorSubtract(p1, p0);
-        //printVector(e1);
         e2 = vectorSubtract(p2, p0);
 
-        //Define vector n
+        //Define normal vector n
         VectorType n = crossProduct(e1, e2);
-        //printVector(n);
 
         //Define A, B, C and D
         float A = n.i;
         float B = n.j;
         float C = n.k;
         float D = -1 * ((A*p0.i) + (B*p0.j) + (C*p0.k));
-       // printVector(n);
-        //printVector(ray.origin);
-        
+
         //find the denominator of the possible ray intersection
-        //xd, yx and zd = ray intersection
         float denominator = (A*ray.intersection.i) + (B*ray.intersection.j) + (C * ray.intersection.k);
-        //printf("%f\n", denominator);
-        if(denominator == 0){
+
+        if(denominator == 0){ //no intersection
             float t = -1;
         }
-        else{
-            float t = (-1 * (A * ray.origin.i + B*ray.origin.j + C*ray.origin.k))/denominator;
+        else{ //intersection, calculate t
+            float t = (-1 * (A * ray.origin.i + B*ray.origin.j + C*ray.origin.k + D))/denominator;
             
-            VectorType p = {(ray.origin.i + (t * ray.intersection.i)), (ray.origin.j + (t * ray.intersection.j)), (ray.origin.k + (t * ray.intersection.k))};
+            //calculate intersection point p and vector ep
+            //VectorType p = {(ray.origin.i + (t * ray.intersection.i)), (ray.origin.j + (t * ray.intersection.j)), (ray.origin.k + (t * ray.intersection.k))};
+            VectorType p = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
             VectorType ep = vectorSubtract(p, p0);
         
+            //calculate the determinant and the barycentric coordinates
             float d11 = dotProduct(e1, e1);
             float d22 = dotProduct(e2, e2);
             float d12 = dotProduct(e1, e2);
@@ -769,12 +777,11 @@ Intersection tracePolygon(Raytype ray, int self_index){
         
                 //intersection with plane was found AND ray is inside triangle
                 if(inside_triangle(beta, gamma, alpha)){
+                    //update t-closest to reflect a valid intersection
                     t_closest = find_t(t, t_closest);
                     if(t_closest == t){
                         triangle_index = k;
                     }
-                    //Intersection polygon_intersection = {triangle_index, 1, ray, t};
-                    //return polygon_intersection;
                 }
             }
         }
@@ -783,7 +790,7 @@ Intersection tracePolygon(Raytype ray, int self_index){
     if(t_closest == -1){
         return {-1, 1, ray, -1};
     }
-    else{//else return the closest intersection
+    else{ //return the closest intersection
         return {triangle_index, 1, ray, t_closest};
     }
 }
@@ -1136,9 +1143,9 @@ int main(int argc, const char * argv[]){
 
     //calculate the width and height in 3d world coordinates
     float radian_vfov = (vfov * M_PI)/180;
-    int height = (2*d*std::tan(0.5 * radian_vfov));
+    float height = (2*d*std::tan(0.5 * radian_vfov));
     float aspect = (float)px_width / (float)px_height;
-    int width = aspect * height;
+    float width = aspect * height;
 
     //Find the 4 corners of the viewing window
     VectorType ul;
@@ -1161,11 +1168,9 @@ int main(int argc, const char * argv[]){
     lr = vectorAdd(lr, vectorScalar(u, (width/2.0)));
     lr = vectorSubtract(lr, vectorScalar(v, (height/2.0)));
 
-    //find change in h and v
     VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width-1);
-    
     VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height-1);
-
+   
     //calculate the vector L for Blinn model of the directional lights
     for(int k = 0; k < lightArray.size(); k++){
         if(lightArray[k].type == 0){
@@ -1186,15 +1191,16 @@ int main(int argc, const char * argv[]){
         for(int j = 0; j < px_width; j++){
 
             //the point where each ray should pass through the viewing window correspoindng to each pixel
-            VectorType intersect_point = vectorAdd(vectorAdd(ul, vectorScalar(h_change, j)), vectorScalar(v_change, i));
+            VectorType intersect_point = vectorAdd(ul, vectorScalar(h_change, j));
+            intersect_point = vectorAdd(intersect_point, vectorScalar(v_change, i));
+
+            VectorType direction = vectorSubtract(intersect_point, eye);
+            normalize(direction);
 
             //initialize a ray for this pixel
             Raytype ray;
             ray.origin = eye;
-            ray.intersection = intersect_point;
-            if(!normalize(ray.intersection)){
-                std::cerr << "Unable to normalize" << std::endl;
-            }
+            ray.intersection = direction;
             
             //use trace_ray and trace_polygon to look for an object intersection
             Intersection trace_ray = traceRay(ray, -1);

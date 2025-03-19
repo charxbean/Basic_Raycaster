@@ -11,7 +11,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/basic_raycaster.exe", // Replace with compiled executable name
-            "args": ["example_test_5.txt"],                      // <-- Command line arguments
+            "args": ["example_test_7.txt"],                      // <-- Command line arguments
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
