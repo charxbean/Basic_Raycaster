@@ -410,9 +410,62 @@ VectorType interpolate_t_normal(int triangle_index, Raytype ray, float t){
     return interpolated_n;
 }
 
-//initialize traceRay and tracePolygon so they can be used inside ShadeRay
+//initialize traceRay and tracePolygon so they can be used inside ShadowRay
 Intersection traceRay(Raytype ray, int self_index);
 Intersection tracePolygon(Raytype ray, int self_index);
+
+/*
+* Determine if a given shape is in shadow relative to the given light source
+* Returns 1 if the shape is not in shadow, 0 if it is in shadow
+*/
+int shadowRay(Raytype shadow_ray, int shape_index, int light_index, int shape){
+    int shadow_flag;
+    //determine shadow ray intersection based on light type
+    if(lightArray[light_index].type == 0){ //directional
+        shadow_ray.intersection = L_array[light_index];
+    }
+    else{ //point
+        shadow_ray.intersection = vectorSubtract(lightArray[light_index].position, shadow_ray.origin); //light position from the sphere surface
+        normalize(shadow_ray.intersection);
+    }
+    
+    //send a ray from the surface of the object to the light source
+    Intersection trace_ray;
+    Intersection trace_polygon;
+    if(shape == 0){ //ignore self index if the object is a sphere
+        trace_ray = traceRay(shadow_ray, shape_index);
+        trace_polygon = tracePolygon(shadow_ray, -1);
+    }
+    else if(shape == 1){ //ignore self index if the object is a polygon
+        trace_polygon = tracePolygon(shadow_ray, shape_index);
+        trace_ray = traceRay(shadow_ray, -1);
+    }
+    else{
+        std::cerr << "Attempting to trace undefined shape" << std::endl;
+        trace_ray = {-1, 0, shadow_ray, -1};
+    }
+
+    //use the t values from trace_ray and trace_polygon to determine if there is a shadow or not
+    if(trace_ray.t < 0 && trace_polygon.t < 0){
+        shadow_flag = 1; //no intersection found, no shadow
+    }
+    else{
+        float blocking_dist = find_t(trace_ray.t, trace_polygon.t);
+        float light_dist = vectorLength(vectorSubtract(lightArray[light_index].position, shadow_ray.origin));
+        //if light is directional, the object blocks the light
+        if(lightArray[light_index].type == 0){
+            shadow_flag = 0;
+        }//if t is greater than the distance from the sphere to a point light source, the object doesn't block the light
+        else if(blocking_dist > light_dist){
+            shadow_flag = 1;
+        }
+        else{//point light and the object is blocking the light
+            shadow_flag = 0;
+        }
+    }
+
+    return shadow_flag;
+}
 
 /**
  * Takes a struct defining the index of a shape, the shape type, the ray that intersected it and the t value of the intersection
@@ -432,6 +485,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     //the intersection point of the surface from the eye
     VectorType intersection = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
 
+    //Determine shape normals texture color (if applicable) based on the shape type
     if(shape == 0){ //the shape is a sphere
         //find the material that corresponds with the given sphere
         int mat_index = sphereArray[shape_index].m;
@@ -515,7 +569,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         return bkgcolor;
     }
 
-    //calculate vector L for each point light source
+    //calculate vector L for each POINT light source
     for(int k = 0; k < lightArray.size(); k++){
         if(lightArray[k].type == 1){
             //(light_position - surface position)
@@ -528,11 +582,12 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         }
     }
 
-    //Define V
+    //Define vector V as the direction from the object intersection point to the eye
     vector_V = vectorDivide(vectorSubtract(ray.origin, ray.intersection), vectorLength(vectorSubtract(ray.origin, ray.intersection)));
     normalize(vector_V);
 
-    //initialize illumination to the ambient light, initialize the base diffuse color
+    //initialize illumination to the ambient light
+    //initialize the base diffuse color to Od or texture color
     ColorType illumination;
     ColorType diffuse;
     if(texture_color.r == -1){ //no texture
@@ -560,57 +615,13 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         //calculate specular color
         float max_NH = max(0.0, dotProduct(vector_N, vector_H)); //clamp specular at 0
         specular = colorMultiply(specular, pow(max_NH, material.n)); //(ks * Os) * (N dot H)^n
-        
-        //distance from the object to the light source
-        float light_dist = vectorLength(vectorSubtract(lightArray[k].position, intersection));
 
-        //SHADOWS - for each light, cast a ray to it and determine if it's in shadow(0) or not (1)
-        int shadow_flag;
+        //SHADOWS - cast a ray from the object surface to each light source to determine if it's in shadow
         Raytype shadow_ray;
         shadow_ray.origin = intersection; //the surface intersection point
-        //determina shadow ray intersection based on light type
-        if(lightArray[k].type == 0){ //directional
-            shadow_ray.intersection = L_array[k];
-        }
-        else{ //point
-            shadow_ray.intersection = vectorSubtract(lightArray[k].position, shadow_ray.origin); //light position from the sphere surface
-            normalize(shadow_ray.intersection);
-        }
-        
-        //send a ray from the surface of the object to the light source
-        Intersection trace_ray;
-        Intersection trace_polygon;
-        if(shape == 0){ //ignore self index if the object is a sphere
-            trace_ray = traceRay(shadow_ray, shape_index);
-            trace_polygon = tracePolygon(shadow_ray, -1);
-        }
-        else if(shape == 1){ //ignore self index if the object is a polygon
-            trace_polygon = tracePolygon(shadow_ray, shape_index);
-            trace_ray = traceRay(shadow_ray, -1);
-        }
-        else{
-            std::cerr << "Attempting to trace undefined shape" << std::endl;
-            trace_ray = {-1, 0, shadow_ray, -1};
-        }
-        
-        
-        //use the t values from trace_ray and trace_polygon to determine if there is a shadow or not
-        if(trace_ray.t < 0 && trace_polygon.t < 0){
-            shadow_flag = 1; //no intersection found, no shadow
-        }
-        else{
-            float blocking_dist = find_t(trace_ray.t, trace_polygon.t);
-            //if light is directional, the object blocks the light
-            if(lightArray[k].type == 0){
-                shadow_flag = 0;
-            }//if t is greater than the distance from the sphere to a point light source, the object doesn't block the light
-            else if(blocking_dist > light_dist){
-                shadow_flag = 1;
-            }
-            else{//point light and the object is blocking the light
-                shadow_flag = 0;
-            }
-        }
+
+        //returns 1 for no shadow, 0 for in shadow
+        int shadow_flag = shadowRay(shadow_ray, shape_index, k, shape);
 
         //if there is no shadow, add the illumination from this light source to the total
         if(shadow_flag == 1){
@@ -621,7 +632,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
 
     }
 
-    //if depth cue was input, compute depth cue
+    //if depth cue was input, add depth cue color to the illumination calculation
     if(depth_cue == true){
         if(t <= depth.dist_near){
             a_dc = depth.a_max;
