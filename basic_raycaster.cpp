@@ -419,7 +419,7 @@ Intersection tracePolygon(Raytype ray, int self_index);
  * Returns the color of the pixel at the intersection point, computed using the Blinn-Phong method
  */
 ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
-    
+
     //if t < 0 then no object intersection was found, return the background color
     if(t < 0){
         return bkgcolor;
@@ -466,12 +466,12 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         material = materialArray[triangle.material];
 
         //FLAT SHADING: immediately return OD
-        if(triangle.n1 == -1 && triangle.t1 == -1){
+        if(triangle.n1 == -1){
             VectorType e1 = vectorSubtract(vertex_array[(triangle.b)-1], vertex_array[(triangle.a)-1]);
             VectorType e2 = vectorSubtract(vertex_array[(triangle.c)-1], vertex_array[(triangle.a)-1]);
 
             vector_N = crossProduct(e1, e2);
-            return material.Od;
+            normalize(vector_N);
         }
         //SMOOTH SHADING: Calculate normal
         if(triangle.n1 > 0){
@@ -524,16 +524,15 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
             vector_L = vectorDivide(new_L, vectorLength(new_L));
             normalize(vector_L);
             //add into vector L array corresponding to the index of this light in the light array
-            L_array.insert(L_array.begin() + k, vector_L);
+            L_array.at(k) = vector_L;
         }
     }
 
     //Define V
     vector_V = vectorDivide(vectorSubtract(ray.origin, ray.intersection), vectorLength(vectorSubtract(ray.origin, ray.intersection)));
     normalize(vector_V);
-    
-    //initialize illumination to the ambient light, initialize base diffuse and specular colors
-    //if theres a texture, switch od with texture color
+
+    //initialize illumination to the ambient light, initialize the base diffuse color
     ColorType illumination;
     ColorType diffuse;
     if(texture_color.r == -1){ //no texture
@@ -541,16 +540,17 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         diffuse = colorMultiply(material.Od, material.kd); //kd * od
     }
     else{
+        //if theres a texture, switch od with texture color
         illumination = colorMultiply(texture_color, material.ka); //ka + texture_color
         diffuse = colorMultiply(texture_color, material.kd); //kd * texture_color
     }
+    //initialize base specular color
     ColorType specular = colorMultiply(material.Os, material.ks); //ks * Os
 
-    //for each light source, compute it's individual intensity and add to the total intensity value
+    //for each light source, compute it's individual illumination and add to the total illumination value
     for(int k = 0; k < lightArray.size(); k++){
         //define vector H for each light source
-        vector_H = vectorDivide(vectorAdd(L_array[k], vector_V), 2); //H = (L + V) /2
-        vector_H = vectorDivide(vector_H, vectorLength(vector_H)); // H = H / ||H||
+        vector_H = vectorDivide(vectorAdd(L_array[k], vector_V), 2.0); //H = (L + V) /2
         normalize(vector_H);
 
         //calculate diffuse color
@@ -561,36 +561,45 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         float max_NH = max(0.0, dotProduct(vector_N, vector_H)); //clamp specular at 0
         specular = colorMultiply(specular, pow(max_NH, material.n)); //(ks * Os) * (N dot H)^n
         
-        //distance from the sphere to the light source
+        //distance from the object to the light source
         float light_dist = vectorLength(vectorSubtract(lightArray[k].position, intersection));
-        
-        //Shadows - for each light, cast a ray to it and determine if it's in shadow(0) or not (1)
+
+        //SHADOWS - for each light, cast a ray to it and determine if it's in shadow(0) or not (1)
         int shadow_flag;
         Raytype shadow_ray;
-        shadow_ray.origin = intersection; //the surface intersection
-        shadow_ray.intersection = vectorSubtract(lightArray[k].position, shadow_ray.origin); //light position from the sphere surface
-        normalize(shadow_ray.intersection);
+        shadow_ray.origin = intersection; //the surface intersection point
+        //determina shadow ray intersection based on light type
+        if(lightArray[k].type == 0){ //directional
+            shadow_ray.intersection = L_array[k];
+        }
+        else{ //point
+            shadow_ray.intersection = vectorSubtract(lightArray[k].position, shadow_ray.origin); //light position from the sphere surface
+            normalize(shadow_ray.intersection);
+        }
         
         //send a ray from the surface of the object to the light source
         Intersection trace_ray;
-        if(shape == 0){ //use trace_ray if the object is a sphere
+        Intersection trace_polygon;
+        if(shape == 0){ //ignore self index if the object is a sphere
             trace_ray = traceRay(shadow_ray, shape_index);
+            trace_polygon = tracePolygon(shadow_ray, -1);
         }
-        else if(shape == 1){ //use trace_polygon if the object is a triangle
-            trace_ray = tracePolygon(shadow_ray, shape_index);
+        else if(shape == 1){ //ignore self index if the object is a polygon
+            trace_polygon = tracePolygon(shadow_ray, shape_index);
+            trace_ray = traceRay(shadow_ray, -1);
         }
         else{
             std::cerr << "Attempting to trace undefined shape" << std::endl;
             trace_ray = {-1, 0, shadow_ray, -1};
         }
         
-
-        //use the t value from trace_ray to determine if there is a shadow or not
-        if(trace_ray.t < 0){
+        
+        //use the t values from trace_ray and trace_polygon to determine if there is a shadow or not
+        if(trace_ray.t < 0 && trace_polygon.t < 0){
             shadow_flag = 1; //no intersection found, no shadow
         }
         else{
-            float blocking_dist = trace_ray.t;
+            float blocking_dist = find_t(trace_ray.t, trace_polygon.t);
             //if light is directional, the object blocks the light
             if(lightArray[k].type == 0){
                 shadow_flag = 0;
@@ -629,19 +638,6 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
 
     clampColor(illumination);
     return illumination;
-}
-
-ColorType oldShadeRay(int sphere_index, int t){
-
-    if(t < 0){
-        return bkgcolor;
-    }
-    else{
-        int mat_index = sphereArray[sphere_index].m;
-        MaterialColor material = materialArray[mat_index];
-        ColorType color = material.Od;
-        return color;
-    }
 }
 
 
@@ -1170,18 +1166,21 @@ int main(int argc, const char * argv[]){
 
     VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width-1);
     VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height-1);
+
+    L_array.resize(lightArray.size());
    
     //calculate the vector L for Blinn model of the directional lights
     for(int k = 0; k < lightArray.size(); k++){
         if(lightArray[k].type == 0){
             VectorType L_inv = vectorScalar(lightArray[k].position, -1.0);
             if(L_inv.i == 0 && L_inv.j == 0 && L_inv.k == 0){ //if zero vector, dont divide by 0
-                L_array.insert(L_array.begin() + k, lightArray[k].position);
+                L_array.at(k) = lightArray[k].position;
             }
             else{
-                vector_L = vectorDivide(L_inv, vectorLength(L_inv));
-                 //insert this L vector into the L array at the same index the light is at in light array
-                L_array.insert(L_array.begin() + k, vector_L);
+                normalize(L_inv);
+                vector_L = L_inv;
+                //insert this L vector into the L_array at the same index as the light in the light_array
+                L_array.at(k) = vector_L;
             }
         }
     }
