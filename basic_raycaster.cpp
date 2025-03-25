@@ -24,27 +24,26 @@ int px_height;
 //arbitrary d value
 int d = 1;
 
-//color type
+//color type, r, g, b
 typedef struct{
     float r, g, b;
 } ColorType;
 
-//material type 
+//Defines a material color
 typedef struct{
     ColorType Od;
     ColorType Os;
     float ka, kd, ks;
     int n;
+    float alpha, aeda, F0;
 }MaterialColor;
 
-//sphere defined by it's center point (x, y, z) and a radius
-//has m as it's material property -> an index into an array of material properties
-//and t as it's texture -> also an index into an array of textures
+//Defines a sphere
 typedef struct{
     VectorType center;
     float r;
-    int m;
-    int t;
+    int m; //index into material array
+    int t; //index into texture array
 } SphereType;
 
 //equation of a ray = (x, y, z) - t*(dx, dy, dz)
@@ -906,6 +905,7 @@ int main(int argc, const char * argv[]){
         std::string word;
         float num1, num2, num3, num4, num5, num6, num7, num8, num9;
         int num10;
+        float num11, num12;
         std::string textureFile;
 
         ss >> word; //Read the first word of every line
@@ -915,11 +915,28 @@ int main(int argc, const char * argv[]){
             continue;
         }
 
+        //skip # as comments in input file
+        if(word == "#"){
+            continue;
+        }
+
         if (word == "mtlcolor"){
-            if (ss >> num1 >> num2 >> num3 >> num4 >> num5 >> num6 >> num7 >> num8 >> num9 >> num10){
+            if (ss >> num1 >> num2 >> num3 >> num4 >> num5 >> num6 >> num7 >> num8 >> num9 >> num10 >> num11 >> num12){
                 ColorType Od = {num1, num2, num3};
                 ColorType Os = {num4, num5, num6};
-                mtlcolor = {Od, Os, num7, num8, num9, num10};
+
+                //clamp alpha value to (0, 1)
+                if(num11 > 1){
+                    num11 = 1;
+                    printf("Alpha value clamped to 1\n");
+                }
+                else if(num11 < 0){
+                    num11 = 0;
+                    printf("Alpha value clamped to 0\n");
+                }
+
+                //mtcolor = Od, Os, ka, kd, ks, n, alpha, aeda, F0
+                mtlcolor = {Od, Os, num7, num8, num9, num10, num11, num12, -1};
                 materialArray.push_back(mtlcolor); //add new material to the material array
                 material_ = true;
             }
@@ -1132,7 +1149,8 @@ int main(int argc, const char * argv[]){
         std::cout << "No Object in scene" << std::endl;
         inputFile.close();
         return 0;
-    }//check that if there is an object, there is also a material color
+    }
+    //check that if there is an object, there is also a material color
     else if((sphere_ || triangle_) && !material_){
         std::cerr << "a sphere was input without a material color" << std::endl;
         inputFile.close();
@@ -1178,9 +1196,13 @@ int main(int argc, const char * argv[]){
     VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width-1);
     VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height-1);
 
+    //Calculate F0 for each material in the material array
+    for(int i = 0; i < materialArray.size(); i++){
+        materialArray[i].F0 = pow(((materialArray[i].aeda - 1)/(materialArray[i].aeda + 1)), 2);
+    }
+
+    //calculate the vector_L for Blinn Phone of each directional light source
     L_array.resize(lightArray.size());
-   
-    //calculate the vector L for Blinn model of the directional lights
     for(int k = 0; k < lightArray.size(); k++){
         if(lightArray[k].type == 0){
             VectorType L_inv = vectorScalar(lightArray[k].position, -1.0);
