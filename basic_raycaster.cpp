@@ -361,7 +361,9 @@ void printColor(ColorType color){
 VectorType vector_N;
 VectorType vector_L;
 VectorType vector_H;
-VectorType vector_V;
+VectorType vector_I;
+
+int rec_depth = 0;
 
 BGA get_bga(int triangle_index, Raytype ray, float t){
     VectorType p0 = vertex_array[(triangle_array[triangle_index].a)-1];
@@ -466,6 +468,9 @@ int shadowRay(Raytype shadow_ray, int shape_index, int light_index, int shape){
     return shadow_flag;
 }
 
+//initialize computeReflection so it can be used inside shadeRay
+ColorType computeReflection(Raytype R, VectorType I, VectorType N, MaterialColor material, int rec_depth);
+
 /**
  * Takes a struct defining the index of a shape, the shape type, the ray that intersected it and the t value of the intersection
  * Returns the color of the pixel at the intersection point, computed using the Blinn-Phong method
@@ -484,7 +489,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     //the intersection point of the surface from the eye
     VectorType intersection = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
 
-    //Determine shape normals texture color (if applicable) based on the shape type
+    //Determine shape normals and texture color (if applicable) based on the shape type
     if(shape == 0){ //the shape is a sphere
         //find the material that corresponds with the given sphere
         int mat_index = sphereArray[shape_index].m;
@@ -581,9 +586,8 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         }
     }
 
-    //Define vector V as the direction from the object intersection point to the eye
-    vector_V = vectorDivide(vectorSubtract(ray.origin, ray.intersection), vectorLength(vectorSubtract(ray.origin, ray.intersection)));
-    normalize(vector_V);
+    //Define vector I as the pposite direction of the incoming intersection ray, should already be normalized
+    vector_I = vectorScalar(ray.intersection, -1);
 
     //initialize illumination to the ambient light
     //initialize the base diffuse color to Od or texture color
@@ -604,7 +608,7 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     //for each light source, compute it's individual illumination and add to the total illumination value
     for(int k = 0; k < lightArray.size(); k++){
         //define vector H for each light source
-        vector_H = vectorDivide(vectorAdd(L_array[k], vector_V), 2.0); //H = (L + V) /2
+        vector_H = vectorAdd(vector_L, vector_I);
         normalize(vector_H);
 
         //calculate diffuse color
@@ -631,6 +635,20 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
 
     }
 
+    //Add F0 + R_lambda
+    //Fxn to compute F0 and R_lambda (recursive)
+    //Returns the value of F0 + R_lambda
+    if(material.ks > 0){
+        Raytype R;
+        R.origin = intersection; //current surface point
+        //reflection ray direction = 2(N dot I)N - I
+        R.intersection = vectorSubtract(vectorScalar(vector_N, dotProduct(vector_N, vector_I)*2), vector_I);
+
+        rec_depth ++;
+        ColorType reflection = computeReflection(R, vector_I,  vector_N, material, rec_depth);
+        illumination = colorAdd(illumination, reflection);
+    }
+
     //if depth cue was input, add depth cue color to the illumination calculation
     if(depth_cue == true){
         if(t <= depth.dist_near){
@@ -650,6 +668,46 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     return illumination;
 }
 
+/**
+ * Computes the reflective color added to a surface based on the input reflection ray
+ * Returns a color type of R_lamda * Fr
+ */
+ColorType computeReflection(Raytype R, VectorType I, VectorType N, MaterialColor material, int rec_depth){
+    
+    ColorType R_color = {};
+    //Fr = F0 + (1 - F0)(1 - (N dot I))^5
+    float Fr = material.F0 + (1 - material.F0) * pow((1 - dotProduct(N, I)), 5);
+
+    //END RECURSION if contribution is less than .01 or recursion depth is greater than 10
+    if(pow(Fr, rec_depth) < .01){
+        return R_color; 
+    }
+    else if(rec_depth >= 10){
+        return R_color;
+    }
+
+    //find the closest object intersection with the reflection ray
+    Intersection trace_ray = traceRay(R, -1);
+    Intersection trace_polygon = tracePolygon(R, -1);
+
+    float t = find_t(trace_ray.t, trace_polygon.t);
+
+    //Use shade ray to define the pixel color based on the nearest R intersection if any
+    if(t < 0){
+        return R_color; //END RECURSION
+    }
+    else if(t == trace_ray.t){ //Trace_ray.ray and trace_polygon.ray should be R
+        R_color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
+    }
+    else if(t == trace_polygon.t){
+        R_color = shadeRay(trace_polygon.shape_index, trace_polygon.shape, trace_polygon.ray, trace_polygon.t);  
+    }
+    else{
+        R_color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, t);  
+    }
+
+    return colorMultiply(R_color, Fr);
+}
 
 /*
 * checks each sphere in the sccene for the closest valid intersection with the given ray
