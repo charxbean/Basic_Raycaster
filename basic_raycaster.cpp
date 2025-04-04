@@ -107,6 +107,7 @@ MaterialColor mtlcolor;
 LightType light;
 DepthCue depth;
 
+float bkg_aeda;
 //struct to check if all neccessary input was given
 typedef struct{
     bool eye_ = false;
@@ -363,7 +364,18 @@ VectorType vector_L;
 VectorType vector_H;
 VectorType vector_I;
 
+//recursive depth of computeReflection
 int rec_depth = 0;
+int rec_depth_T = 0;
+//reflected color recursively computed in shade_ray
+ColorType R_color;
+//refracted color recursivley computed in shade_ray
+ColorType T_Color;
+//total color computed at each pixel in shade_ray
+ColorType illumination;
+
+float ni = bkg_aeda;
+float nt;
 
 BGA get_bga(int triangle_index, Raytype ray, float t){
     VectorType p0 = vertex_array[(triangle_array[triangle_index].a)-1];
@@ -468,8 +480,9 @@ int shadowRay(Raytype shadow_ray, int shape_index, int light_index, int shape){
     return shadow_flag;
 }
 
-//initialize computeReflection so it can be used inside shadeRay
-ColorType computeReflection(Raytype R, VectorType I, VectorType N, MaterialColor material, int rec_depth);
+//initialize computeReflection and computeRefraction so they can be used inside shadeRay
+ColorType computeReflection(Raytype R, VectorType I, VectorType N, MaterialColor material, int rec_depth, int shape_index, int shape);
+ColorType computeRefraction(Raytype T, VectorType I, VectorType N, MaterialColor material, int rec_depth, int shape_index, int shape);
 
 /**
  * Takes a struct defining the index of a shape, the shape type, the ray that intersected it and the t value of the intersection
@@ -485,12 +498,19 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     //initialize material color
     MaterialColor material;
     ColorType texture_color = {-1, -1, -1};
+    nt = material.aeda;
 
     //the intersection point of the surface from the eye
     VectorType intersection = vectorAdd(ray.origin, vectorScalar(ray.intersection, t));
 
+    //Define vector I as the opposite direction of the incoming intersection ray
+    vector_I = vectorSubtract(intersection, ray.origin);
+    normalize(vector_I);
+    vector_I = vectorScalar(ray.intersection, -1);
+
     //Determine shape normals and texture color (if applicable) based on the shape type
     if(shape == 0){ //the shape is a sphere
+
         //find the material that corresponds with the given sphere
         int mat_index = sphereArray[shape_index].m;
         material = materialArray[mat_index];
@@ -499,6 +519,14 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         //calculate normal vector N
         vector_N = vectorDivide(vectorSubtract(intersection, sphere.center), sphere.r);
         normalize(vector_N);
+        //if the normal is facing the wrong way, flip it
+        //ray coming from inside the sphere
+        if(dotProduct(vector_N, vector_I) < 0){
+            vector_N = vectorScalar(vector_N, -1); 
+        }
+        ni = material.aeda;
+        nt = bkg_aeda;
+        
         //if the sphere has a texture, calculate u and v to get the texture color
         if(sphere.t != -1){ 
             TextureFile *texture = &texture_array[sphere.t];
@@ -530,10 +558,20 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
 
             vector_N = crossProduct(e1, e2);
             normalize(vector_N);
+            if(dotProduct(vector_N, vector_I) < 0){
+                vector_N = vectorScalar(vector_N, -1); 
+            }
+            ni = material.aeda;
+            nt = bkg_aeda;
         }
         //SMOOTH SHADING: Calculate normal
         if(triangle.n1 > 0){
             vector_N = interpolate_t_normal(shape_index, ray, t);
+            if(dotProduct(vector_N, vector_I) < 0){
+                vector_N = vectorScalar(vector_N, -1); 
+            }
+            ni = material.aeda;
+            nt = bkg_aeda;
         }
         
         /**
@@ -586,12 +624,8 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
         }
     }
 
-    //Define vector I as the pposite direction of the incoming intersection ray, should already be normalized
-    vector_I = vectorScalar(ray.intersection, -1);
-
     //initialize illumination to the ambient light
     //initialize the base diffuse color to Od or texture color
-    ColorType illumination;
     ColorType diffuse;
     if(texture_color.r == -1){ //no texture
         illumination = colorMultiply(material.Od, material.ka); //ka + Od
@@ -640,13 +674,34 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
     //Returns the value of F0 + R_lambda
     if(material.ks > 0){
         Raytype R;
-        R.origin = intersection; //current surface point
-        //reflection ray direction = 2(N dot I)N - I
-        R.intersection = vectorSubtract(vectorScalar(vector_N, dotProduct(vector_N, vector_I)*2), vector_I);
+        R.origin = intersection; //current ray/surface point
+        float a = dotProduct(vector_N, vector_I);
+        VectorType reflection_dir = vectorSubtract(vectorScalar(vector_N, 2 * a), vector_I);
+        normalize(reflection_dir);
+        R.intersection = reflection_dir;
+        //prevent self intersecting messing up the reflection color
+        //R.origin = vectorAdd(vectorScalar(vector_N, .001f), intersection);
 
         rec_depth ++;
-        ColorType reflection = computeReflection(R, vector_I,  vector_N, material, rec_depth);
+        ColorType reflection = computeReflection(R, vector_I,  vector_N, material, rec_depth, shape_index, shape);
         illumination = colorAdd(illumination, reflection);
+    }
+
+    if(material.alpha == 1){
+        Raytype T;
+        T.origin = intersection; //current ray/surface point
+        float a = dotProduct(vector_N, vector_I);
+        float n = ni/nt;
+        float delim = 1 - pow(n, 2) * (1 - pow(a, 2));
+        if(delim > 0){
+            T.intersection = vectorScalar(vectorScalar(vector_N, -1), std::sqrt(delim));
+            T.intersection = vectorAdd(T.intersection, vectorScalar(vectorSubtract(vectorScalar(vector_N, a), vector_I), n));
+            normalize(T.intersection);
+            rec_depth_T ++;
+            ColorType refraction = computeRefraction(T, vector_I, vector_N, material, rec_depth_T, shape_index, shape);
+            illumination = colorAdd(illumination, refraction);
+        }
+        //if delim < 0, total internal reflection occurs, no refraction??
     }
 
     //if depth cue was input, add depth cue color to the illumination calculation
@@ -672,41 +727,122 @@ ColorType shadeRay(int shape_index, int shape, Raytype ray, float t){
  * Computes the reflective color added to a surface based on the input reflection ray
  * Returns a color type of R_lamda * Fr
  */
-ColorType computeReflection(Raytype R, VectorType I, VectorType N, MaterialColor material, int rec_depth){
+ColorType computeReflection(Raytype R, VectorType I, VectorType N, MaterialColor material, int rec_depth, int shape_index, int shape){
     
-    ColorType R_color = {};
-    //Fr = F0 + (1 - F0)(1 - (N dot I))^5
-    float Fr = material.F0 + (1 - material.F0) * pow((1 - dotProduct(N, I)), 5);
-
-    //END RECURSION if contribution is less than .01 or recursion depth is greater than 10
-    if(pow(Fr, rec_depth) < .01){
-        return R_color; 
-    }
-    else if(rec_depth >= 10){
+    //END RECURSION if recursion depth is greater than 10
+    if(rec_depth >= 10){
         return R_color;
     }
 
+    //Compute Reflection ray direction: 2(N dot I)N - I
+    float a = dotProduct(N, I);
+    //std::cout << "a: " << a << std::endl;
+
+    //Compute Fr: F0 + (1 - F0)(1 - (N dot I))^5
+    float Fr;
+    if(material.F0 > .9){
+        Fr = 1;
+    }
+    else if(material.F0 < 0.01){
+        Fr = pow((1-a), 5);
+    }
+    else{
+        Fr = material.F0 + (1 - material.F0) * pow((1 - a), 5);
+    }
+    if(Fr > 1 || Fr < 0){
+        return R_color;
+    }
+    
+
+    Intersection trace_ray;
+    Intersection trace_polygon;
     //find the closest object intersection with the reflection ray
-    Intersection trace_ray = traceRay(R, -1);
-    Intersection trace_polygon = tracePolygon(R, -1);
+    if(shape == 0){ //sphere
+        trace_ray = traceRay(R, shape_index);
+        trace_polygon = tracePolygon(R, -1);
+    }
+    else if(shape == 1){
+        trace_ray = traceRay(R, -1);
+        trace_polygon = tracePolygon(R, shape_index);
+    }
 
     float t = find_t(trace_ray.t, trace_polygon.t);
 
-    //Use shade ray to define the pixel color based on the nearest R intersection if any
+    ColorType color = {0, 0, 0}; //initialize color to black
+
+    //Use shade ray to define the pixel color based on the nearest R intersection, if any
     if(t < 0){
         return R_color; //END RECURSION
     }
     else if(t == trace_ray.t){ //Trace_ray.ray and trace_polygon.ray should be R
-        R_color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
+        color = colorAdd(shadeRay(trace_ray.shape_index, trace_ray.shape, R, trace_ray.t), color);  
     }
     else if(t == trace_polygon.t){
-        R_color = shadeRay(trace_polygon.shape_index, trace_polygon.shape, trace_polygon.ray, trace_polygon.t);  
+        color = colorAdd(shadeRay(trace_polygon.shape_index, trace_polygon.shape, R, trace_polygon.t), color);  
     }
     else{
-        R_color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, t);  
+        color = colorAdd(shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, t), color);  
     }
 
-    return colorMultiply(R_color, Fr);
+    color = colorMultiply(color, Fr); //multiply the color by Fr
+    clampColor(color);
+    R_color = colorAdd(R_color, color); //add the color to the total R_color value 
+    clampColor(R_color);
+
+    return R_color;
+}
+
+ColorType computeRefraction(Raytype T, VectorType I, VectorType N, MaterialColor material, int rec_depth, int shape_index, int shape){
+    
+    //END RECURSION if recursion depth is greater than 10
+    if(rec_depth >= 10){
+        return T_Color;
+    }
+
+    float a = dotProduct(N, I);
+
+    //Compute Fr: F0 + (1 - F0)(1 - (N dot I))^5
+    float Fr;
+    if(material.F0 == 1){
+        Fr = 1;
+    }
+    else if(material.F0 == 0){
+        Fr = pow((1-a), 5);
+    }
+    else{
+        Fr = material.F0 + (1 - material.F0) * pow((1 - a), 5);
+    }
+
+    if(material.alpha == 0){
+        return T_Color = {T_Color.r + (1-Fr), T_Color.g + (1-Fr), T_Color.b + (1-Fr)};
+    }
+    
+    ColorType color = {0, 0, 0}; //initialize color to black
+
+    Intersection trace_ray = traceRay(T, -1);
+    Intersection trace_polygon = tracePolygon(T, -1);
+    float t = find_t(trace_ray.t, trace_polygon.t);
+
+    if(t < 0){
+        return T_Color; //END RECURSION
+    }
+    else if(t == trace_ray.t){ //Trace_ray.ray and trace_polygon.ray should be T
+        color = colorAdd(shadeRay(trace_ray.shape_index, trace_ray.shape, T, trace_ray.t), color);  
+    }
+    else if(t == trace_polygon.t){
+        color = colorAdd(shadeRay(trace_polygon.shape_index, trace_polygon.shape, T, trace_polygon.t), color);  
+    }
+    else{
+        color = colorAdd(shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, t), color);  
+    }
+
+    float x = (1-Fr)*(1-material.alpha);
+    color = colorMultiply(color, x); //multiply the color by Fr
+    clampColor(color);
+    T_Color = colorAdd(T_Color, color); 
+    clampColor(T_Color);
+    
+    return T_Color;
 }
 
 /*
@@ -1026,26 +1162,33 @@ int main(int argc, const char * argv[]){
                 std::cerr << "Error parsing light line: " << line << std::endl;
             }
         }
-        else if (word == "sphere") {
+        else if (word == "sphere" || word == "bkgcolor") {
             if (ss >> num1 >> num2 >> num3 >> num4) {
-                //set sphere material to the index of the last material in the material array
-                VectorType center = {num1, num2, num3};
-                if(texture_array.size() > 0){
-                    SphereType sphere = {center, num4, static_cast<int>(materialArray.size() - 1), static_cast<int>(texture_array.size() - 1)};
-                    sphereArray.push_back(sphere); //add spheres to the spere array
-                    sphere_ = true;
+                if (word == "bkgcolor"){
+                    bkgcolor = {num1, num2, num3};
+                    bkg_aeda = num4;
+                    valid_input.bkgcolor_ = true;
                 }
-                else{
-                    SphereType sphere = {center, num4, static_cast<int>(materialArray.size() - 1), -1};
-                    sphereArray.push_back(sphere); //add spheres to the spere array
-                    sphere_ = true;
+                else if(word == "sphere"){
+                    //set sphere material to the index of the last material in the material array
+                    VectorType center = {num1, num2, num3};
+                    if(texture_array.size() > 0){
+                        SphereType sphere = {center, num4, static_cast<int>(materialArray.size() - 1), static_cast<int>(texture_array.size() - 1)};
+                        sphereArray.push_back(sphere); //add spheres to the spere array
+                        sphere_ = true;
+                    }
+                    else{
+                        SphereType sphere = {center, num4, static_cast<int>(materialArray.size() - 1), -1};
+                        sphereArray.push_back(sphere); //add spheres to the spere array
+                        sphere_ = true;
+                    }
                 }
                 
             } else {
-                std::cerr << "Error parsing sphere line: " << line << std::endl;
+                std::cerr << "Error parsing line: " << line << std::endl;
             }
         }
-        else if (word == "eye" || word == "viewdir" || word == "updir" || word == "bkgcolor" || word == "v" || word == "vn") {
+        else if (word == "eye" || word == "viewdir" || word == "updir" || word == "v" || word == "vn") {
             if (ss >> num1 >> num2 >> num3) {
                 if (word == "eye"){
                     eye = {num1, num2, num3};
@@ -1059,10 +1202,6 @@ int main(int argc, const char * argv[]){
                     updir = {num1, num2, num3};
                     valid_input.updir_ = true;
                 }       
-                if (word == "bkgcolor"){
-                    bkgcolor = {num1, num2, num3};
-                    valid_input.bkgcolor_ = true;
-                }
                 if(word == "v"){ 
                     VectorType v = {num1, num2, num3};
                     vertex_array.push_back(v);
@@ -1253,10 +1392,12 @@ int main(int argc, const char * argv[]){
 
     VectorType h_change = vectorDivide(vectorSubtract(ur, ul), px_width-1);
     VectorType v_change = vectorDivide(vectorSubtract(ll, ul), px_height-1);
-
+    
     //Calculate F0 for each material in the material array
     for(int i = 0; i < materialArray.size(); i++){
-        materialArray[i].F0 = pow(((materialArray[i].aeda - 1)/(materialArray[i].aeda + 1)), 2);
+        float aeda = materialArray[i].aeda;
+        materialArray[i].F0 = (aeda - 1)/(aeda + 1);
+        materialArray[i].F0 = pow(materialArray[i].F0, 2);
     }
 
     //calculate the vector_L for Blinn Phone of each directional light source
@@ -1279,6 +1420,11 @@ int main(int argc, const char * argv[]){
     //iterate through each pixel (j, i) where i = 0 to px_height-1, and j = 0 to px_width-1.
     for(int i = 0; i < px_height; i++){
         for(int j = 0; j < px_width; j++){
+            rec_depth = 0; //initialize the recursion depth to 0
+            rec_depth_T = 0; //initialize the recursion depth to 0
+            R_color = {0, 0, 0}; //initialize the reflection color to 0
+            T_Color = {0, 0, 0}; //initialize the refraction color to 0
+            illumination = {0, 0, 0}; //initialize the illumination color to 0
 
             //the point where each ray should pass through the viewing window correspoindng to each pixel
             VectorType intersect_point = vectorAdd(ul, vectorScalar(h_change, j));
@@ -1301,15 +1447,17 @@ int main(int argc, const char * argv[]){
 
             //Use shade ray to define the pixel color based on which object was intersected if any
             ColorType color;
-            if(t_shape == trace_ray.t){
+
+            if(t_shape < 0){ //no intersection
+                color = bkgcolor;
+            }
+            else if(t_shape == trace_ray.t){
                 color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, trace_ray.t);  
             }
             else if(t_shape == trace_polygon.t){
                 color = shadeRay(trace_polygon.shape_index, trace_polygon.shape, trace_polygon.ray, trace_polygon.t);  
             }
-            else{ //t_shape is -1
-                color = shadeRay(trace_ray.shape_index, trace_ray.shape, trace_ray.ray, t_shape);  
-            }
+
             //print the color to the output file
             fout << std::round(color.r * 255) << " " << std::round(color.g * 255) << " " << std::round(color.b * 255) << std::endl;
         }
